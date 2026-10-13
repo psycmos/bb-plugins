@@ -34,6 +34,7 @@ import { describeNode, KindIcon } from "./KindIcon";
 import { StatusEdge, type StatusEdgeData } from "./StatusEdge";
 import type { CanvasEdge, CanvasFrame, CanvasNode } from "../lib/types";
 import { MOTION_CSS, MOTION_MS, planMotion } from "../lib/tree-motion";
+import { accentOf, type ColorMode as CardColorMode } from "../lib/kind-colors";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -195,17 +196,20 @@ function wheelZoomDelta(event: { deltaY: number; deltaMode: number }): number {
  *  more (`getViewportForBounds` in `@xyflow/system` confirms the formula).
  *  Reverted to 0.6; the real cause was the start fit racing the host
  *  container's first real-size measurement (see the fit effect below). */
-export const START_MIN_ZOOM = 0.6;
+export const START_MIN_ZOOM = 0.5;
 
-/** The first fit frames the roots and their direct children, never deeper
- *  levels, and never zooms out past `START_MIN_ZOOM`. A floor, not a fixed
+/** The first fit frames the roots and two levels below them, never deeper, and never zooms out past `START_MIN_ZOOM`. A floor, not a fixed
  *  zoom: a small tree still fits as large as it would anyway. */
 export function startFitOptions(nodes: readonly CanvasNode[]) {
   const ids = new Set(nodes.map((n) => n.id));
   const isRoot = (n: CanvasNode) => n.parentId === null || !ids.has(n.parentId);
   const rootIds = new Set(nodes.filter(isRoot).map((n) => n.id));
   const firstLevel = nodes.filter((n) => isRoot(n) || rootIds.has(n.parentId as string));
-  return { ...FIT_VIEW_OPTIONS, nodes: firstLevel.map((n) => ({ id: n.id })), minZoom: START_MIN_ZOOM };
+  // One level more (BBP-298): agents → projects → threads is the overview the
+  // page opens on, and a thread cut off at the top edge reads as missing.
+  const firstIds = new Set(firstLevel.map((n) => n.id));
+  const secondLevel = nodes.filter((n) => !firstIds.has(n.id) && n.parentId !== null && firstIds.has(n.parentId) && !rootIds.has(n.id));
+  return { ...FIT_VIEW_OPTIONS, nodes: [...firstLevel, ...secondLevel].map((n) => ({ id: n.id })), minZoom: START_MIN_ZOOM };
 }
 
 export type CanvasShellProps = {
@@ -227,6 +231,11 @@ export type CanvasShellProps = {
   onSelect?: (nodeId: string, event?: ReactMouseEvent) => void;
   /** A click on the empty canvas (BBP-298: closes the detail panel). */
   onBackgroundClick?: () => void;
+  /** Colour cards by type or by state, as agent-graph (BBP-298); absent:
+   *  neutral cards. */
+  colorBy?: CardColorMode;
+  /** Where the zoom controls sit; agent-graph keeps them bottom right. */
+  controlsPosition?: "bottom-left" | "bottom-right";
   /** Node and frame ids outside the frame being edited (BBP-166) — faded,
    *  locked, no `onSelect`. */
   dimmedIds?: ReadonlySet<string>;
@@ -278,6 +287,7 @@ function toFlow(
   onToggle: ((id: string) => void) | undefined,
   failedLoads: ReadonlySet<string>,
   haloId: string | null = null,
+  colorBy?: CardColorMode,
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const byFrameId = new Map(frames.map((frame) => [frame.id, frame]));
@@ -298,6 +308,7 @@ function toFlow(
       onClick: onSelect ? (event: ReactMouseEvent<HTMLButtonElement>) => onSelect(node.id, event) : undefined,
       dimmed: dimmedIds.has(node.id),
       loadFailed: failedLoads.has(node.id),
+      ...(colorBy ? { accent: accentOf(node, colorBy) } : {}),
       expander: expandable.has(node.id)
         ? {
             expanded: expanded.has(node.id),
@@ -358,6 +369,8 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
     haloId = null,
     onSelect,
     onBackgroundClick,
+    colorBy,
+    controlsPosition = "bottom-left",
     dimmedIds = EMPTY_DIMMED,
     failedLoads = EMPTY_DIMMED,
     className,
@@ -372,8 +385,8 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
   );
   const { flowNodes, flowEdges } = useMemo(
     () =>
-      toFlow(layout, nodes, frames, selectedId, onSelect, dimmedIds, expanded, expandable, onToggle, failedLoads, haloId),
-    [layout, nodes, frames, selectedId, onSelect, dimmedIds, expanded, expandable, onToggle, failedLoads, haloId],
+      toFlow(layout, nodes, frames, selectedId, onSelect, dimmedIds, expanded, expandable, onToggle, failedLoads, haloId, colorBy),
+    [layout, nodes, frames, selectedId, onSelect, dimmedIds, expanded, expandable, onToggle, failedLoads, haloId, colorBy],
   );
 
   const reducedMotion = usePrefersReducedMotion();
@@ -528,7 +541,7 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
         proOptions={{ hideAttribution: true }}
       >
         <Background />
-        <Controls showInteractive={false} />
+        <Controls showInteractive={false} position={controlsPosition} />
       </ReactFlow>
     </div>
   );

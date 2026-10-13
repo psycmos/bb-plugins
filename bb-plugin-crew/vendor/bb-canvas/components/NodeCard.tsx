@@ -35,6 +35,9 @@ export type NodeCardProps = {
    *  simply has nothing — the destructive border wins even over a neutral
    *  `status`, and clicking the card (or its chevron) retries. */
   loadFailed?: boolean;
+  /** agent-graph's look (BBP-298): a colour bar on the left edge and a
+   *  tinted square behind the icon. Absent: the neutral card. */
+  accent?: string;
 };
 
 const AMBER = "var(--warning)";
@@ -115,6 +118,7 @@ export function NodeCard({
   dimmed = false,
   expander,
   loadFailed = false,
+  accent,
 }: NodeCardProps) {
   ensurePulseStyles();
   const tier: Tier = kind !== undefined ? TIER_OF[kind] : "card";
@@ -145,6 +149,7 @@ export function NodeCard({
         padding: tier === "card" ? "6px 10px" : "0 10px",
         borderRadius: radius,
         border,
+        ...(accent ? { borderLeft: `3px solid ${accent}` } : {}),
         // --ring, the same ink as the selected-path edge, so ring and path read
         // as one selection rather than as another "running" accent.
         outline: selected ? "2px solid var(--ring)" : "none",
@@ -164,7 +169,25 @@ export function NodeCard({
       }}
     >
       {icon ? (
-        <span aria-hidden style={{ display: "flex", flexShrink: 0 }}>
+        <span
+          aria-hidden
+          data-bb-accent={accent}
+          style={
+            accent
+              ? {
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  width: tier === "row" ? 18 : 24,
+                  height: tier === "row" ? 18 : 24,
+                  borderRadius: 6,
+                  color: accent,
+                  background: `color-mix(in oklab, ${accent} 16%, transparent)`,
+                }
+              : { display: "flex", flexShrink: 0 }
+          }
+        >
           {icon}
         </span>
       ) : null}

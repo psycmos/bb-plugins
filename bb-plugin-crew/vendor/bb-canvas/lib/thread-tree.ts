@@ -15,6 +15,8 @@ export type ThreadListItem = {
   providerId: string;
   archivedAt: number | null;
   updatedAt: number;
+  /** The thread's working branch, when its environment has one. */
+  environmentBranchName?: string | null;
 };
 
 export type ProjectLike = { id: string; name: string };
@@ -37,7 +39,7 @@ function threadNode(thread: ThreadListItem): CanvasNode {
     label: thread.title?.trim() || thread.titleFallback?.trim() || "Thread",
     status: threadStatus(thread.status),
     parentId: projectNodeId(thread.projectId),
-    meta: { threadId: thread.id, state: thread.status, provider: thread.providerId },
+    meta: { threadId: thread.id, state: thread.status, provider: thread.providerId, ...(thread.environmentBranchName ? { branch: thread.environmentBranchName } : {}) },
   };
 }
 

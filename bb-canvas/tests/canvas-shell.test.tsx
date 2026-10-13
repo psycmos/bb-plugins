@@ -276,9 +276,9 @@ describe("startFitOptions (BBP-196)", () => {
     { id: "orphan", kind: "thread", label: "orphan", parentId: "missing" },
   ];
 
-  it("fits only the roots and their direct children", () => {
+  it("fits the roots and two levels below them (agents, projects, threads)", () => {
     const ids = startFitOptions(tree).nodes.map((n) => n.id);
-    expect(ids.sort()).toEqual(["orphan", "p1", "p2", "root"]);
+    expect(ids.sort()).toEqual(["orphan", "p1", "p2", "root", "t1"]);
   });
 
   it("floors the zoom at a readable minimum, above the manual floor of 0.2", () => {

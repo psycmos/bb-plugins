@@ -9,19 +9,20 @@ export type Tier = "group" | "card" | "row";
  *  shape (graph-run/thread/member). Row: a compact line for high-volume leaf
  *  activity (step/turn/tool-call/subagent). */
 export const TIER_OF: Record<CanvasNodeKind, Tier> = {
-  // Cards, as in agent-graph (BBP-298): root and projects are no bare
-  // header rows but the same card as a thread.
+  // Every kind is a two-line card, as in agent-graph (BBP-298): a turn, a
+  // tool call or a subagent shows its type colour, title and a second line
+  // (the command, the step count) just like a thread does.
   agents: "card",
   project: "card",
   crew: "card",
   "graph-run": "card",
   thread: "card",
   member: "card",
-  step: "row",
-  turn: "row",
-  "tool-call": "row",
-  subagent: "row",
-  "system-event": "row",
+  step: "card",
+  turn: "card",
+  "tool-call": "card",
+  subagent: "card",
+  "system-event": "card",
 };
 
 export type TierSize = { width: number; height: number };

@@ -108,6 +108,27 @@ describe("the Canvas surface", () => {
     expect(screen.queryByRole("button", { name: /^Status/ })).toBeNull();
   });
 
+  it("colours by type by default; the toggle switches to status and is remembered", async () => {
+    canvasPanel(sdk([row("t1", "p1", "Live")]));
+    const toggle = await screen.findByRole("button", { name: "Color: Type" });
+    expect(document.querySelector("[data-bb-accent]")).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Color: Status" })).toBeTruthy();
+    cleanup();
+    canvasPanel(sdk([row("t1", "p1", "Live")]));
+    expect(await screen.findByRole("button", { name: "Color: Status" })).toBeTruthy();
+  });
+
+  it("shows the legend with the state counts and a Running button while something runs", async () => {
+    canvasPanel(sdk([row("t1", "p1", "Busy", { status: "active" }), row("t2", "p1", "Quiet")]));
+    await screen.findByRole("button", { name: /^Busy — / });
+    const legend = screen.getByRole("region", { name: "Legend" });
+    expect(within(legend).getByText("Shell")).toBeTruthy();
+    expect(within(legend).getByText("Running").parentElement?.textContent).toContain("1");
+    fireEvent.click(screen.getByRole("button", { name: "Running 1" }));
+    expect(screen.getByRole("button", { name: /^Busy — / }).getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("says where to widen the window when it leaves no thread", async () => {
     canvasPanel(sdk([row("t2", "p1", "Old", { archivedAt: 1 })]));
     expect(await screen.findByText("No threads in the overview window. Widen it in the plugin settings.")).toBeTruthy();

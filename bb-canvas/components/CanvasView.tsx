@@ -2,6 +2,7 @@
 // (CanvasShell already has that), keyboard navigation, breadcrumb, search and
 // the detail sidebar. Works against whatever `nodes`/`edges` it is given —
 // fixtures here, RPC data once the owning plugin wires it up (WI3/WI4).
+import type { ColorMode } from "../lib/kind-colors";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { CanvasShell, type CanvasShellHandle } from "./CanvasShell";
 import { Breadcrumb } from "./Breadcrumb";
@@ -127,6 +128,15 @@ export type CanvasViewProps = {
    *  on and gives it a halo. Off: J selects the first running node, as the
    *  Activity Canvas always did. */
   halo?: boolean;
+  /** Colour cards by type or by state, as agent-graph (BBP-298). */
+  colorBy?: ColorMode;
+  /** Where the zoom controls sit (agent-graph: bottom right). */
+  controlsPosition?: "bottom-left" | "bottom-right";
+  /** Drawn over the canvas's bottom-left corner — agent-graph's legend. A
+   *  function gets every node on the canvas, loaded children included. */
+  overlay?: ReactNode | ((nodes: readonly CanvasNode[]) => ReactNode);
+  /** Drawn left of the zoom controls in the bottom-right corner. */
+  cornerAction?: ReactNode;
   className?: string;
 };
 
@@ -160,6 +170,10 @@ export function CanvasView({
   renderSidebarExtra,
   onSelectionChange,
   halo = false,
+  colorBy,
+  controlsPosition,
+  overlay,
+  cornerAction,
   className,
 }: CanvasViewProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() =>
@@ -678,7 +692,9 @@ export function CanvasView({
         />
       ) : null}
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+          {overlay ? <div style={{ position: "absolute", left: 12, bottom: 12, zIndex: 5, maxWidth: "calc(100% - 200px)" }}>{typeof overlay === "function" ? overlay(visible) : overlay}</div> : null}
+          {cornerAction ? <div style={{ position: "absolute", right: 64, bottom: 14, zIndex: 5 }}>{cornerAction}</div> : null}
           <CanvasShell
             ref={shellRef}
             nodes={allNodes}
@@ -692,6 +708,8 @@ export function CanvasView({
             haloId={halo ? haloId : null}
             onSelect={handleSelect}
             onBackgroundClick={() => select(null)}
+            colorBy={colorBy}
+            controlsPosition={controlsPosition}
             dimmedIds={dimmedIds}
             failedLoads={failedLoads}
           />

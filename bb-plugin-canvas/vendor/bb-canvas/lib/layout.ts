@@ -185,10 +185,17 @@ export function layoutTree(
   }
 
   const onSelectedPath = selectedPathEdges(selectedId ?? null, parentIdOf);
+  // As agent-graph: the whole path from the root down to running work is
+  // marked, not only the last edge into the running node (BBP-298).
+  const runningBranch = new Set<string>();
+  for (const node of nodes) {
+    if (node.status !== "running") continue;
+    for (let id = parentOf(node); id !== null && !runningBranch.has(id); id = parentOf(byId.get(id)!)) runningBranch.add(id);
+  }
   const flowEdges: PlacedEdge[] = order.flatMap((id) => {
     const parentId = parentIdOf.get(id)!;
     if (parentId === null) return [];
-    return [flowEdge(placed.get(parentId)!, placed.get(id)!, byId.get(id)!, onSelectedPath.has(id))];
+    return [flowEdge(placed.get(parentId)!, placed.get(id)!, byId.get(id)!, onSelectedPath.has(id), runningBranch.has(id))];
   });
 
   const declaredEdges: PlacedEdge[] = edges.flatMap((edge) => {
@@ -262,19 +269,19 @@ function placeFrames(
  *  draws the plain neutral line like anything else — "taken" is gone
  *  (BBP-214 stage 1): a line to a `done` step must not look like ongoing
  *  activity. */
-function flowEdgeState(child: CanvasNode, onSelectedPath: boolean): CanvasEdgeState | undefined {
-  if (child.status === "running") return "now";
+function flowEdgeState(child: CanvasNode, onSelectedPath: boolean, leadsToRunning = false): CanvasEdgeState | undefined {
+  if (child.status === "running" || leadsToRunning) return "now";
   return onSelectedPath ? "selected-path" : undefined;
 }
 
-function flowEdge(from: PlacedNode, to: PlacedNode, toNode: CanvasNode, onSelectedPath: boolean): PlacedEdge {
+function flowEdge(from: PlacedNode, to: PlacedNode, toNode: CanvasNode, onSelectedPath: boolean, leadsToRunning = false): PlacedEdge {
   const fromX = from.x + from.width;
   const fromY = from.y + from.height / 2;
   const toX = to.x;
   const toY = to.y + to.height / 2;
   const midX = (fromX + toX) / 2;
   const path = [`M ${fromX} ${fromY}`, `C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`].join(" ");
-  const state = flowEdgeState(toNode, onSelectedPath);
+  const state = flowEdgeState(toNode, onSelectedPath, leadsToRunning);
   return { from: from.id, to: to.id, variant: "flow", path, label: "", isBack: false, ...(state ? { state } : {}) };
 }
 

@@ -91,7 +91,10 @@ function describeToolCall(meta?: Record<string, unknown>): string {
 
 export function describeNode(kind: CanvasNodeKind, childCount: number, meta?: Record<string, unknown>): string {
   if (kind === "thread") {
-    const facts = [meta?.state, meta?.provider].filter((value): value is string => typeof value === "string" && value !== "");
+    // As agent-graph: provider and branch; the state shows in the card's dot.
+    const facts = (typeof meta?.branch === "string" && meta.branch !== "" ? [meta?.provider, meta.branch] : [meta?.state, meta?.provider]).filter(
+      (value): value is string => typeof value === "string" && value !== "",
+    );
     return facts.length > 0 ? facts.join(" · ") : KIND_LABEL.thread;
   }
   if (kind === "tool-call") return describeToolCall(meta);

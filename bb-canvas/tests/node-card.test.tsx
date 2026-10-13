@@ -134,19 +134,7 @@ describe("NodeCard group tier never borders (BBP-222)", () => {
 describe("NodeCard three tiers (BBP-223)", () => {
 
 
-  it.each(["step", "tool-call"] as const)("renders a %s row filled, with no border in the normal case", (kind) => {
-    render(<NodeCard label="x" kind={kind} />);
-    const button = screen.getByRole("button");
-    expect(button.style.borderStyle).toBe("none");
-    expect(button.style.background).toContain("var(--muted)");
-  });
 
-  it("tints a failed row's fill instead of leaving it a bare border", () => {
-    render(<NodeCard label="x" kind="step" status="failed" />);
-    const button = screen.getByRole("button");
-    expect(button.style.border).toContain("var(--destructive)");
-    expect(button.style.background).toContain("var(--destructive)");
-  });
 
   it("ellipsizes a long label and carries the full text as a title attribute", () => {
     const long = "a".repeat(80);
@@ -162,10 +150,6 @@ describe("NodeCard three tiers (BBP-223)", () => {
     expect(sub.getAttribute("title")).toBe("a very long description of this node");
   });
 
-  it("never renders a subtitle line for a row-tier kind, even when one is given", () => {
-    render(<NodeCard label="x" kind="step" subtitle="should not show" />);
-    expect(screen.queryByText("should not show")).toBeNull();
-  });
 });
 
 describe("NodeCard keyframes injection", () => {

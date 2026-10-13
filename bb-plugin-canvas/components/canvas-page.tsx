@@ -8,6 +8,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useBbNavigate, useSdk, useSettings } from "@get-bb/plugin-sdk/app";
 import { CanvasView } from "../vendor/bb-canvas/components/CanvasView";
 import { FocusUnavailable } from "../vendor/bb-canvas/components/FocusUnavailable";
+import { Legend } from "../vendor/bb-canvas/components/Legend";
+import type { ColorMode } from "../vendor/bb-canvas/lib/kind-colors";
 import { missingFocusIds, visibleFocusIds } from "../vendor/bb-canvas/lib/focus-filter";
 import { overviewSettings, overviewTree, type OverviewSettings } from "../vendor/bb-canvas/lib/overview";
 import type { ProjectLike, ThreadListItem } from "../vendor/bb-canvas/lib/thread-tree";
@@ -105,6 +107,26 @@ export type CanvasPageProps = {
 };
 
 const ACTIVE_ONLY_KEY = "bb-canvas:active-only";
+const COLOR_BY_KEY = "bb-canvas:color-by";
+
+function loadColorBy(): ColorMode {
+  try {
+    return localStorage.getItem(COLOR_BY_KEY) === "status" ? "status" : "type";
+  } catch {
+    return "type";
+  }
+}
+
+function saveColorBy(value: ColorMode) {
+  try {
+    localStorage.setItem(COLOR_BY_KEY, value);
+  } catch {
+    // Storage blocked: the toggle still works for this page.
+  }
+}
+
+const TOOLBAR_BUTTON =
+  "rounded-md border px-2 py-0.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary";
 
 function loadActiveOnly(): boolean | null {
   try {
@@ -142,6 +164,12 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     saveActiveOnly(value);
     setActiveOnlyState(value);
   };
+  const [colorBy, setColorByState] = useState<ColorMode>(loadColorBy);
+  const setColorBy = (value: ColorMode) => {
+    saveColorBy(value);
+    setColorByState(value);
+  };
+  const viewRef = useRef<HTMLDivElement | null>(null);
   const turnsPerThread = useRef(filter.turnsPerThread);
   turnsPerThread.current = filter.turnsPerThread;
   // Per thread node: bumped on every `thread:changed`; CanvasView reloads
@@ -215,14 +243,23 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     return <FocusUnavailable onShowAll={() => setFocus(null)} />;
   if (state.threads.length === 0) return <div className="p-4 text-sm text-muted-foreground">No threads yet.</div>;
   const toolbar = (
-    <button
-      type="button"
-      aria-pressed={activeOnly}
-      onClick={() => setActiveOnly(!activeOnly)}
-      className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary ${activeOnly ? "border-primary bg-primary/10 text-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}
-    >
-      Active only
-    </button>
+    <>
+      <button
+        type="button"
+        aria-pressed={activeOnly}
+        onClick={() => setActiveOnly(!activeOnly)}
+        className={`${TOOLBAR_BUTTON} ${activeOnly ? "border-primary bg-primary/10 text-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}
+      >
+        Active only
+      </button>
+      <button
+        type="button"
+        onClick={() => setColorBy(colorBy === "type" ? "status" : "type")}
+        className={`${TOOLBAR_BUTTON} border-border bg-card text-muted-foreground hover:text-foreground`}
+      >
+        Color: {colorBy === "type" ? "Type" : "Status"}
+      </button>
+    </>
   );
   if (activeOnly && (layer === null || layer.nodes.length === 0))
     return (
@@ -257,14 +294,32 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
       </div>
     );
   const visible = visibleFocusIds(layer.nodes, focusIds);
+  const running = layer.nodes.filter((node) => node.status === "running").length;
+  // "Running N" does what J does: the canvas cycles through running work.
+  const jumpToRunning = () => viewRef.current?.querySelector<HTMLElement>("[data-canvas-view]")?.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={viewRef} className="flex h-full min-h-0 flex-col">
         <CanvasView
           nodes={layer.nodes.filter((node) => visible.has(node.id))}
           edges={layer.edges}
           initialExpanded={new Set(layer.expanded)}
           toolbar={toolbar}
           halo
+          colorBy={colorBy}
+          controlsPosition="bottom-right"
+          overlay={(shown) => <Legend nodes={shown} colorBy={colorBy} />}
+          cornerAction={
+            running > 0 ? (
+              <button
+                type="button"
+                onClick={jumpToRunning}
+                className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-foreground shadow-sm hover:bg-muted"
+              >
+                <span aria-hidden className="h-2 w-2 rounded-full bg-primary" />
+                Running {running}
+              </button>
+            ) : null
+          }
           surface="canvas"
           focusSelected={focusIds}
           // A thread always has turns to fetch; a turn only if it has steps.
