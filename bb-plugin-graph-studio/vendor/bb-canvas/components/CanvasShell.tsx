@@ -225,6 +225,8 @@ export type CanvasShellProps = {
   /** The click's modifier keys ride along (BBP-241: Ctrl/Cmd-click toggles
    *  focus instead of selecting). */
   onSelect?: (nodeId: string, event?: ReactMouseEvent) => void;
+  /** A click on the empty canvas (BBP-298: closes the detail panel). */
+  onBackgroundClick?: () => void;
   /** Node and frame ids outside the frame being edited (BBP-166) — faded,
    *  locked, no `onSelect`. */
   dimmedIds?: ReadonlySet<string>;
@@ -355,6 +357,7 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
     selectedId,
     haloId = null,
     onSelect,
+    onBackgroundClick,
     dimmedIds = EMPTY_DIMMED,
     failedLoads = EMPTY_DIMMED,
     className,
@@ -517,6 +520,7 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
           // calls) and set for an actual user gesture (drag, wheel, pinch).
           if (event) userInteracted.current = true;
         }}
+        onPaneClick={onBackgroundClick}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
         // The canvas is a page of its own inside BB, not a demo; the corner

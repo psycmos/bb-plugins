@@ -95,6 +95,9 @@ export function describeNode(kind: CanvasNodeKind, childCount: number, meta?: Re
     return facts.length > 0 ? facts.join(" · ") : KIND_LABEL.thread;
   }
   if (kind === "tool-call") return describeToolCall(meta);
+  // As agent-graph: the root and a project count what hangs under them.
+  if (kind === "agents") return `${childCount} ${childCount === 1 ? "project" : "projects"}`;
+  if (kind === "project") return `${childCount} ${childCount === 1 ? "thread" : "threads"}`;
   // A message row is a turn's request or its reply, not another turn.
   if (kind === "turn" && meta?.from === "User") return "Request";
   if (kind === "turn" && meta?.from === "Agent") return "Reply";

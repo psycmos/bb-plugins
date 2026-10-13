@@ -82,77 +82,35 @@ describe("the Canvas nav page", () => {
 });
 
 // BBP-189 AK 4: every filter narrows, an empty project filter hides nothing.
-describe("the Canvas filters", () => {
+describe("the Canvas surface", () => {
   const sdk = (threads: unknown[]) => ({
     projects: { list: async () => [{ id: "p1", name: "Shop" }, { id: "p2", name: "Blog" }] },
     threads: { list: async () => threads },
   });
   const card = (name: string) => screen.queryByRole("button", { name: new RegExp(`^${name} — `) });
 
-  it("hides archived threads by default and shows them on request", async () => {
+  it("hides archived threads", async () => {
     canvasPanel(sdk([row("t1", "p1", "Live"), row("t2", "p1", "Old", { archivedAt: 1 })]));
     expect(await screen.findByRole("button", { name: /^Live — / })).toBeTruthy();
     expect(card("Old")).toBeNull();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Hide archived" }));
-    expect(await screen.findByRole("button", { name: /^Old — / })).toBeTruthy();
   });
 
-  it("an empty project filter shows every project; a pick narrows", async () => {
-    canvasPanel(sdk([row("t1", "p1", "In shop"), row("t2", "p2", "In blog")]));
-    expect(await screen.findByRole("button", { name: /^In shop — / })).toBeTruthy();
-    expect(card("In blog")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /^Projects/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Blog" }));
-    expect(card("In shop")).toBeNull();
-    expect(card("In blog")).toBeTruthy();
-  });
-
-  it("narrows by status", async () => {
-    canvasPanel(sdk([row("t1", "p1", "Busy", { status: "active" }), row("t2", "p1", "Broken", { status: "error" })]));
-    expect(await screen.findByRole("button", { name: /^Busy — / })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /^Status/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Failed" }));
-    expect(card("Busy")).toBeNull();
-    expect(card("Broken")).toBeTruthy();
-  });
-
-  it("narrows by time window", async () => {
-    const twoDays = Date.now() - 48 * 3_600_000;
-    canvasPanel(sdk([row("t1", "p1", "Today"), row("t2", "p1", "Stale", { updatedAt: twoDays })]));
-    fireEvent.change(await screen.findByRole("combobox", { name: "Time window" }), { target: { value: "all" } });
-    expect(await screen.findByRole("button", { name: /^Stale — / })).toBeTruthy();
-    fireEvent.change(screen.getByRole("combobox", { name: "Time window" }), { target: { value: "24h" } });
-    expect(card("Stale")).toBeNull();
-    expect(card("Today")).toBeTruthy();
-  });
-
-  it("caps the number of threads, newest first", async () => {
-    canvasPanel(sdk([row("t1", "p1", "Newer"), row("t2", "p1", "Older", { updatedAt: Date.now() - 1000 })]));
-    expect(await screen.findByRole("button", { name: /^Older — / })).toBeTruthy();
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Thread limit" }), { target: { value: "1" } });
-    expect(card("Older")).toBeNull();
-    expect(card("Newer")).toBeTruthy();
-  });
-
-  it("resets the filters from the empty state", async () => {
-    canvasPanel(sdk([row("t1", "p1", "Calm")]));
-    expect(await screen.findByRole("button", { name: /^Calm — / })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /^Status/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Failed" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Reset filters" }));
-    expect(await screen.findByRole("button", { name: /^Calm — / })).toBeTruthy();
-  });
-
-  it("offers a turns-per-thread limit", async () => {
+  it("puts only Active only, Collapse all and Expand all on the surface, as agent-graph (BBP-298)", async () => {
     canvasPanel(sdk([row("t1", "p1", "Live")]));
-    const input = (await screen.findByRole("spinbutton", { name: "Turns per thread" })) as HTMLInputElement;
-    expect(input.value).toBe("1");
+    await screen.findByRole("button", { name: /^Live — / });
+    expect(screen.getByRole("button", { name: "Active only" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Collapse all" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Expand all" })).toBeTruthy();
+    expect(screen.queryByRole("spinbutton")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Projects/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Status/ })).toBeNull();
   });
 
-  it("says so when the filters leave no thread", async () => {
+  it("says where to widen the window when it leaves no thread", async () => {
     canvasPanel(sdk([row("t2", "p1", "Old", { archivedAt: 1 })]));
-    expect(await screen.findByText("No threads match the filters.")).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "Hide archived" })).toBeTruthy();
+    expect(await screen.findByText("No threads in the overview window. Widen it in the plugin settings.")).toBeTruthy();
   });
 
   it("opens the search with /", async () => {
@@ -171,21 +129,28 @@ describe("the Canvas chat tab and thread panel action", () => {
   });
   const chat = () => screen.queryByTestId("bb-thread-chat");
 
-  it("shows the selected thread's chat in a Chat tab beside the graph", async () => {
-    canvasPanel(sdk([row("t1", "p1", "First"), row("t2", "p1", "Second")]));
-    fireEvent.click(await screen.findByRole("button", { name: /^Second — / }));
-    fireEvent.click(screen.getByRole("tab", { name: "Chat" }));
-    expect(chat()?.getAttribute("data-thread-id")).toBe("t2");
-    fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
+  it("has no chat column and no tabs: the graph is the page (BBP-298)", async () => {
+    canvasPanel(sdk([row("t1", "p1", "First")]));
+    fireEvent.click(await screen.findByRole("button", { name: /^First — / }));
     expect(chat()).toBeNull();
-    expect(screen.getByRole("button", { name: /^First — / })).toBeTruthy();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByText("Select a thread to see its chat.")).toBeNull();
   });
 
-  it("asks for a thread when none is selected", async () => {
+  it("opens a thread in BB's own thread view on double-click", async () => {
+    const rendered = canvasPanel(sdk([row("t1", "p1", "First")]));
+    const card = await screen.findByRole("button", { name: /^First — / });
+    fireEvent.click(card, { detail: 1 });
+    fireEvent.click(card, { detail: 2 });
+    expect(JSON.stringify(rendered.navigateCalls)).toContain("t1");
+  });
+
+  it("closes the detail panel with Escape", async () => {
     canvasPanel(sdk([row("t1", "p1", "First")]));
-    fireEvent.click(await screen.findByRole("tab", { name: "Chat" }));
-    expect(chat()).toBeNull();
-    expect(screen.getByText("Select a thread to see its chat.")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /^First — / }));
+    expect(screen.getByRole("button", { name: /^First — / }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.keyDown(document.querySelector("[data-canvas-view]")!, { key: "Escape" });
+    expect(screen.getByRole("button", { name: /^First — / }).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("registers a thread panel action titled Canvas", () => {
@@ -197,12 +162,10 @@ describe("the Canvas chat tab and thread panel action", () => {
     return renderSlot(action, { threadId, params: null }, { context: { projectId: "p1", threadId }, sdk: { subscribe: () => () => {}, ...sdk(threads) } as never });
   };
 
-  it("opens the canvas focused on its thread, with that thread's chat", async () => {
+  it("opens the canvas focused on its thread", async () => {
     threadPanel("t2", [row("t1", "p1", "Other"), row("t2", "p1", "Mine")]);
     expect(await screen.findByRole("button", { name: /^Mine — / })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Other — / })).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Chat" }));
-    expect(chat()?.getAttribute("data-thread-id")).toBe("t2");
   });
 
   it("keeps the focused thread even when the filters would hide it", async () => {
@@ -226,7 +189,7 @@ describe("the Canvas chat tab and thread panel action", () => {
   it("shows FocusUnavailable for an unknown thread when the filters leave nothing", async () => {
     threadPanel("gone", [row("t1", "p1", "Old", { archivedAt: 1 })]);
     expect(await screen.findByRole("status")).toBeTruthy();
-    expect(screen.queryByText("No threads match the filters.")).toBeNull();
+    expect(screen.queryByText(/No threads in the overview window/)).toBeNull();
   });
 
   it("focuses a thread named in the nav page's sub-path", async () => {
@@ -286,8 +249,7 @@ describe("the Canvas page's turns", () => {
 
   it("shows only the newest turns-per-thread turns", async () => {
     const { sdk, timeline } = liveSdk(() => [1, 2, 3].map((n) => ({ ...turnRow(`turn-${n}`), summaryCount: 0 })));
-    canvasPanel(sdk);
-    fireEvent.change(await screen.findByRole("spinbutton", { name: "Turns per thread" }), { target: { value: "2" } });
+    canvasPanel(sdk, { overviewTurns: 2 });
     await open(/^Plain chat — /);
     await waitFor(() => expect(timeline).toHaveBeenCalled());
     await waitFor(() => expect(screen.getAllByRole("button", { name: /^Turn.* — / })).toHaveLength(2));
@@ -339,16 +301,12 @@ describe("the Canvas overview window", () => {
   const DAY = 24 * 3_600_000;
   const card = (name: string) => screen.queryByRole("button", { name: new RegExp(`^${name} — `) });
 
-  it("shows the last 12 h by default and says so; Show all brings back the rest", async () => {
+  it("shows the last 12 h by default", async () => {
     canvasPanel(sdk([row("t1", "p1", "Today"), row("t2", "p2", "Stale", { updatedAt: Date.now() - 2 * DAY })]));
     expect(await screen.findByRole("button", { name: /^Today — / })).toBeTruthy();
     expect(card("Stale")).toBeNull();
     // The project with nothing left in view is gone too.
     expect(screen.queryByRole("button", { name: /^Blog — / })).toBeNull();
-    expect(screen.getByText("Last 12 h · 1 of 2")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
-    expect(await screen.findByRole("button", { name: /^Blog — / })).toBeTruthy();
-    expect(screen.getByText("2 of 2")).toBeTruthy();
   });
 
   it("keeps a running thread three days old in view", async () => {
@@ -360,9 +318,6 @@ describe("the Canvas overview window", () => {
   it("takes window, thread limit and turns from the plugin settings", async () => {
     canvasPanel(sdk([row("t1", "p1", "Yesterday", { updatedAt: Date.now() - 20 * 3_600_000 })]), { windowHours: 24, maxThreads: 5, overviewTurns: 3 });
     expect(await screen.findByRole("button", { name: /^Yesterday — / })).toBeTruthy();
-    expect(screen.getByText("Last 24 h · 1 of 1")).toBeTruthy();
-    expect((screen.getByRole("spinbutton", { name: "Thread limit" }) as HTMLInputElement).value).toBe("5");
-    expect((screen.getByRole("spinbutton", { name: "Turns per thread" }) as HTMLInputElement).value).toBe("3");
   });
 });
 
@@ -422,8 +377,6 @@ describe("the Canvas Active only toggle (BBP-288)", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: /^Quiet chat — / })).toBeNull());
     expect(screen.getByRole("button", { name: /^Busy chat — / })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Active only" }).getAttribute("aria-pressed")).toBe("true");
-    // The bar counts what is left in view, not just the window.
-    expect(screen.getByText("Last 12 h · 2 of 2 · 1 active")).toBeTruthy();
   });
 
   it("remembers the toggle across reloads", async () => {
@@ -476,10 +429,11 @@ describe("the Canvas keyboard jump", () => {
   it("ignores shortcuts typed into a field", async () => {
     canvasPanel(sdk([row("t1", "p1", "Run one", { status: "active" })]));
     await screen.findByRole("button", { name: /^Run one — / });
-    const input = screen.getByRole("spinbutton", { name: "Thread limit" });
+    fireEvent.keyDown(root(), { key: "/" });
+    const input = screen.getByRole("textbox", { name: "Search nodes" });
     const jKey = fireEvent.keyDown(input, { key: "j" });
     expect(pressed(/^Run one — /)).toBe("false");
-    // Not swallowed either: "0" must still reach the number field.
+    // Not swallowed either: "0" must still reach the field.
     expect(fireEvent.keyDown(input, { key: "0" })).toBe(true);
     expect(jKey).toBe(true);
   });
@@ -489,51 +443,6 @@ describe("the Canvas keyboard jump", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Run one — / }));
     expect(pressed(/^Run one — /)).toBe("true");
     expect(halo(/^Run one — /)).toBeNull();
-  });
-});
-
-// BBP-289: from a minimum width, graph and chat side by side; below it the tabs.
-describe("the Canvas chat split", () => {
-  const sdk = (threads: unknown[]) => ({ projects: { list: async () => [{ id: "p1", name: "Shop" }] }, threads: { list: async () => threads } });
-  const chat = () => screen.queryByTestId("bb-thread-chat");
-  const original = globalThis.ResizeObserver;
-  function withWidth(width: number) {
-    globalThis.ResizeObserver = class {
-      constructor(private callback: ResizeObserverCallback) {}
-      observe(target: Element) {
-        this.callback([{ target, contentRect: { width } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
-      }
-      unobserve() {}
-      disconnect() {}
-    } as unknown as typeof ResizeObserver;
-  }
-  afterEach(() => {
-    globalThis.ResizeObserver = original;
-  });
-
-  it("shows graph and the selected thread's chat side by side on a wide page, without tabs", async () => {
-    withWidth(1200);
-    canvasPanel(sdk([row("t1", "p1", "First"), row("t2", "p1", "Second")]));
-    fireEvent.click(await screen.findByRole("button", { name: /^Second — / }));
-    await waitFor(() => expect(chat()?.getAttribute("data-thread-id")).toBe("t2"));
-    expect(screen.getByRole("button", { name: /^First — / })).toBeTruthy();
-    // The chat names its thread, so the split never leaves you guessing.
-    expect(within(screen.getByRole("region", { name: "Chat" })).getByText("Second")).toBeTruthy();
-    expect(screen.queryByRole("tab", { name: "Chat" })).toBeNull();
-  });
-
-  it("shows a hint, not an error, in the split chat without a selection", async () => {
-    withWidth(1200);
-    canvasPanel(sdk([row("t1", "p1", "First")]));
-    expect(await screen.findByText("Select a thread to see its chat.")).toBeTruthy();
-    expect(chat()).toBeNull();
-  });
-
-  it("keeps the tabs on a narrow page", async () => {
-    withWidth(600);
-    canvasPanel(sdk([row("t1", "p1", "First")]));
-    expect(await screen.findByRole("tab", { name: "Chat" })).toBeTruthy();
-    expect(screen.queryByText("Select a thread to see its chat.")).toBeNull();
   });
 });
 

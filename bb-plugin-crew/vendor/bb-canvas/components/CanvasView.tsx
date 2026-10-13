@@ -221,14 +221,32 @@ export function CanvasView({
     setFitRequest((count) => count + 1);
   }, [focusKey]);
 
-  const allNodes = useMemo(
-    () => [...nodes, ...[...loaded.values()].flatMap((result) => result.nodes)],
-    [nodes, loaded],
-  );
-  const allEdges = useMemo(
-    () => [...edges, ...[...loaded.values()].flatMap((result) => result.edges ?? [])],
-    [edges, loaded],
-  );
+  // Loaded children count only while the node they were loaded for is
+  // itself in the tree: a thread that "Active only" or the overview window
+  // drops must take its turns with it, or they would lay out as loose roots
+  // (BBP-298). Nested loads (a turn's tool calls) follow the same rule.
+  const attached = useMemo(() => {
+    const present = new Set(nodes.map((node) => node.id));
+    const kept: LoadedChildren[] = [];
+    let pending = [...loaded];
+    for (let grew = true; grew; ) {
+      grew = false;
+      const rest: typeof pending = [];
+      for (const [parentId, result] of pending) {
+        if (!present.has(parentId)) {
+          rest.push([parentId, result]);
+          continue;
+        }
+        kept.push(result);
+        for (const child of result.nodes) present.add(child.id);
+        grew = true;
+      }
+      pending = rest;
+    }
+    return kept;
+  }, [nodes, loaded]);
+  const allNodes = useMemo(() => [...nodes, ...attached.flatMap((result) => result.nodes)], [nodes, attached]);
+  const allEdges = useMemo(() => [...edges, ...attached.flatMap((result) => result.edges ?? [])], [edges, attached]);
 
   const hasRelations = useMemo(() => allEdges.some((edge) => edge.relation), [allEdges]);
   const shownEdges = useMemo(
@@ -354,6 +372,13 @@ export function CanvasView({
     const node = byId.get(id);
     if (modifier && onToggleFocus && node && FOCUSABLE_KINDS.has(node.kind)) {
       onToggleFocus(id);
+      return;
+    }
+    // A double-click on a card that names a thread opens that thread's chat,
+    // as in agent-graph; the first click of the pair has already selected it.
+    const threadId = node?.meta?.threadId;
+    if (event !== undefined && event.detail >= 2 && onOpenThread && typeof threadId === "string") {
+      onOpenThread(threadId);
       return;
     }
     select(id);
@@ -666,6 +691,7 @@ export function CanvasView({
             selectedId={selectedId}
             haloId={halo ? haloId : null}
             onSelect={handleSelect}
+            onBackgroundClick={() => select(null)}
             dimmedIds={dimmedIds}
             failedLoads={failedLoads}
           />

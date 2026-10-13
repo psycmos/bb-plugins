@@ -123,37 +123,16 @@ describe("NodeCard status border (BBP-146)", () => {
 });
 
 describe("NodeCard group tier never borders (BBP-222)", () => {
-  it.each(["agents", "project", "crew"] as const)("gives a %s card no border at all, even failed", (kind) => {
-    render(<NodeCard label="x" kind={kind} status="failed" />);
-    expect(screen.getByRole("button").style.borderStyle).toBe("none");
-  });
 
   it("negative: a card-tier kind keeps its status border", () => {
     render(<NodeCard label="x" kind="member" status="failed" />);
     expect(screen.getByRole("button").style.border).toContain("var(--destructive)");
   });
 
-  it("does not pulse a group card even while running", () => {
-    render(<NodeCard label="x" kind="project" status="running" />);
-    expect(screen.getByRole("button").className).not.toContain("bb-canvas-pulse");
-  });
 });
 
 describe("NodeCard three tiers (BBP-223)", () => {
-  it.each(["agents", "project", "crew"] as const)(
-    "renders a %s group borderless, never with a status colour, even with a running child",
-    (kind) => {
-      render(<NodeCard label="x" kind={kind} subtitle="3 crews" status="running" />);
-      const button = screen.getByRole("button");
-      expect(button.style.borderStyle).toBe("none");
-      expect(button.style.border).not.toContain("var(--primary)");
-    },
-  );
 
-  it("negative: a group's own failed status still draws no border — group never borders", () => {
-    render(<NodeCard label="x" kind="agents" status="failed" />);
-    expect(screen.getByRole("button").style.borderStyle).toBe("none");
-  });
 
   it.each(["step", "tool-call"] as const)("renders a %s row filled, with no border in the normal case", (kind) => {
     render(<NodeCard label="x" kind={kind} />);
@@ -211,14 +190,6 @@ describe("NodeCard status glyph and selection ring (BBP-224 design pass)", () =>
     expect(container.querySelector(`[data-bb-status-glyph="${glyph}"]`)).toBeTruthy();
   });
 
-  it("negative: idle and done draw no state glyph, a group never does", () => {
-    const { container, rerender } = render(<NodeCard label="x" kind="thread" status="idle" />);
-    expect(container.querySelector("[data-bb-status-glyph]")).toBeNull();
-    rerender(<NodeCard label="x" kind="thread" status="done" />);
-    expect(container.querySelector("[data-bb-status-glyph]")).toBeNull();
-    rerender(<NodeCard label="x" kind="crew" status="running" />);
-    expect(container.querySelector("[data-bb-status-glyph]")).toBeNull();
-  });
 
   it("a load failure shows the failed glyph even on a neutral status", () => {
     const { container } = render(<NodeCard label="x" kind="thread" status="idle" loadFailed />);
@@ -230,8 +201,14 @@ describe("NodeCard status glyph and selection ring (BBP-224 design pass)", () =>
     expect(screen.getByRole("button").style.outline).toContain("var(--ring)");
   });
 
-  it("a group sits transparent on the canvas", () => {
-    render(<NodeCard label="bb-plugins" kind="project" />);
-    expect(screen.getByRole("button").style.background).toBe("transparent");
+});
+
+describe("NodeCard root and project as cards (BBP-298)", () => {
+  it.each(["agents", "project", "crew"] as const)("draws a %s like a thread card, with a border and a running pulse", (kind) => {
+    render(<NodeCard label="x" kind={kind} subtitle="3 threads" status="running" />);
+    const button = screen.getByRole("button");
+    expect(button.style.border).toContain("var(--primary)");
+    expect(button.className).toContain("bb-canvas-pulse");
+    expect(screen.getByText("3 threads")).toBeTruthy();
   });
 });

@@ -23,10 +23,10 @@ describe("tiers", () => {
     }
   });
 
-  it("groups agents/project/crew as 'group', graph-run/thread/member as 'card', the rest as 'row'", () => {
-    expect(TIER_OF.agents).toBe("group");
-    expect(TIER_OF.project).toBe("group");
-    expect(TIER_OF.crew).toBe("group");
+  it("draws agents/project/crew and graph-run/thread/member as 'card' (agent-graph, BBP-298), the rest as 'row'", () => {
+    expect(TIER_OF.agents).toBe("card");
+    expect(TIER_OF.project).toBe("card");
+    expect(TIER_OF.crew).toBe("card");
     expect(TIER_OF["graph-run"]).toBe("card");
     expect(TIER_OF.thread).toBe("card");
     expect(TIER_OF.member).toBe("card");
@@ -44,7 +44,7 @@ describe("tiers", () => {
   });
 
   it("sizeOf looks a kind's size up through its tier", () => {
-    expect(sizeOf("crew")).toEqual(TIER_SIZE.group);
+    expect(sizeOf("crew")).toEqual(TIER_SIZE.card);
     expect(sizeOf("member")).toEqual(TIER_SIZE.card);
     expect(sizeOf("step")).toEqual(TIER_SIZE.row);
   });
