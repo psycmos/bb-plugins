@@ -7,7 +7,7 @@
 // push their layers (FT4/FT5).
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { collectLayers, extensionContract } from "./lib/extensions";
+import { answerNeeds, collectLayers, extensionContract } from "./lib/extensions";
 
 /** collectLayers checks each answer itself; the call only has to deliver it. */
 const anyOutput = z.unknown();
@@ -29,6 +29,8 @@ export default function canvas(bb: BbPluginApi) {
       }
       return collectLayers(projectIds, active, (pluginId, method, input) => bb.sdk.plugins.callRpc({ pluginId, method, input: input as Record<string, string>, outputSchema: anyOutput }), sinceMs);
     },
+    answerNeeds: ({ needs, answer }) =>
+      answerNeeds(needs, answer, (pluginId, method, input) => bb.sdk.plugins.callRpc({ pluginId, method, input: input as Record<string, string>, outputSchema: anyOutput })),
   });
   bb.settings.define({
     windowHours: {

@@ -16,6 +16,11 @@ export const layerSchema = z.object({
   frames: z.array(loose),
 });
 
+export const needsSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("graph-studio"), runId: z.string().min(1), nodeId: z.string().optional() }),
+  z.object({ kind: z.literal("crew"), projectId: z.string().min(1), address: z.string().min(1) }),
+]);
+
 export type ExtensionLayer = z.infer<typeof layerSchema>;
 
 export const extensionContract = defineRpcContract({
@@ -25,7 +30,30 @@ export const extensionContract = defineRpcContract({
     input: z.object({ projectIds: z.array(z.string().min(1)), sinceMs: z.number().optional() }),
     output: layerSchema.extend({ sources: z.array(z.string()) }),
   },
+  /** BBP-303: answers a "Needs you" from the canvas sidebar, in the plugin that asked. */
+  answerNeeds: {
+    input: z.object({ needs: needsSchema, answer: z.string().min(1).max(4000) }),
+    output: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+  },
 });
+
+/** What a node's `meta.needsYou` names: a graph run's approval or a crew member's question. */
+export type Needs = z.infer<typeof needsSchema>;
+
+/** Routes an answer to the plugin that asked; a failing call becomes the error. */
+export async function answerNeeds(needs: Needs, answer: string, call: CallRpc): Promise<{ ok: boolean; error: string | null }> {
+  try {
+    if (needs.kind === "graph-studio") {
+      await call("graph-studio", "answerHuman", { runId: needs.runId, answer, nodeId: needs.nodeId });
+    } else {
+      const result = (await call("crew", "sendMessage", { projectId: needs.projectId, to: needs.address, body: answer, crew: null, replyTo: null })) as { error?: string | null } | null;
+      if (result?.error) return { ok: false, error: result.error };
+    }
+    return { ok: true, error: null };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
 
 /** The plugins the canvas asks, by id, with the method they answer. */
 export const EXTENSIONS: readonly { pluginId: string; method: string }[] = [

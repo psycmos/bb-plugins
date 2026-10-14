@@ -207,7 +207,7 @@ export function flowSteps(layer: CanvasLayer, run: CanvasRun, runId: string): vo
         attemptThreads: attempts.flatMap((step) => (step.childThreadId ? [step.childThreadId] : [])),
         ...(gate ? { gate: true } : {}),
         ...(!last && !gate ? { ghost: true } : {}),
-        ...(waits ? { waitsForYou: { runId: run.id, nodeId: node.id, label: waitingOn!.label, question: waitingOn!.question } } : {}),
+        ...(waits ? { waitsForYou: { kind: "graph-studio", runId: run.id, nodeId: node.id, label: waitingOn!.label, question: waitingOn!.question } } : {}),
       },
     });
   }

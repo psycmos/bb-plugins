@@ -32,6 +32,7 @@ import type { CanvasEdge, CanvasNode } from "../vendor/bb-canvas/lib/types";
 import { ActivitySection } from "./activity-section";
 import { StepLog } from "./step-log";
 import { ThreadTabs } from "./thread-tabs";
+import { NeedsPanel, needsOf } from "./needs-panel";
 
 type State = { projects: ProjectLike[]; threads: readonly ThreadListItem[] } | { error: string } | null;
 type Sdk = ReturnType<typeof useSdk>;
@@ -531,8 +532,12 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
           reveal={reveal}
           renderSidebarExtra={(node) => {
             const threadId = node.kind === "thread" ? node.meta?.threadId : undefined;
-            if (typeof threadId !== "string") return null;
-            return (
+            const needs = needsOf(node.meta);
+            const panel = needs ? (
+              <NeedsPanel key={node.id} needs={needs} answer={(target, answer) => rpcRef.current.call("answerNeeds", { needs: target, answer })} />
+            ) : null;
+            if (typeof threadId !== "string") return panel;
+            const tabs = (
               <ThreadTabs
                 turns={
                   <ActivitySection
@@ -545,6 +550,14 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
                 }
                 tools={<StepLog sdk={sdk} threadId={threadId} version={reloads.get(node.id) ?? 0} onReveal={(nodeId) => revealEntry(threadId, nodeId, true)} />}
               />
+            );
+            return panel ? (
+              <div className="flex flex-col gap-4">
+                {panel}
+                {tabs}
+              </div>
+            ) : (
+              tabs
             );
           }}
           reloadChildren={reloads}

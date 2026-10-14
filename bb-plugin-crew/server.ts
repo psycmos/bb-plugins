@@ -1115,7 +1115,23 @@ export default async function plugin(bb: BbPluginApi) {
       const { members } = await service.contract.listMembers(projectId);
       const crews = store.listCrews(projectId);
       const linksByCrew = Object.fromEntries(crews.map((crew) => [crew.name, store.listLinks(crew.id)]));
-      return { contractVersion: CONTRACT_VERSION, ...crewCanvasLayer(projectId, crews, members, linksByCrew) };
+      const layer = crewCanvasLayer(projectId, crews, members, linksByCrew);
+      // BBP-303: a member that asked the human something carries the question,
+      // so the Canvas can draw "Needs you" on it and answer from its sidebar.
+      try {
+        const asking = new Map(
+          (await service.needs(projectId))
+            .filter((view) => view.needsYou.includes("human-question"))
+            .map((view) => [view.address, view] as const),
+        );
+        for (const node of layer.nodes) {
+          const view = node.kind === "member" ? asking.get(String(node.meta?.address)) : undefined;
+          if (view) node.meta = { ...node.meta, needsYou: { kind: "crew", projectId, address: view.address, question: view.question ?? "", threadId: view.threadId } };
+        }
+      } catch {
+        // Unknown needs cost only the marker, not the layer.
+      }
+      return { contractVersion: CONTRACT_VERSION, ...layer };
     },
     canvasPage: async () => {
       try {
