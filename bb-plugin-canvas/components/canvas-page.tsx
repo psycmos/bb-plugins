@@ -9,6 +9,9 @@ import { useBbNavigate, useSdk, useSettings } from "@get-bb/plugin-sdk/app";
 import { CanvasView } from "../vendor/bb-canvas/components/CanvasView";
 import { FocusUnavailable } from "../vendor/bb-canvas/components/FocusUnavailable";
 import { Legend } from "../vendor/bb-canvas/components/Legend";
+import { FocusFilter } from "../vendor/bb-canvas/components/FocusFilter";
+import { ProjectFilter } from "../vendor/bb-canvas/components/ProjectFilter";
+import { loadProjectFilter, saveProjectFilter } from "../vendor/bb-canvas/lib/project-filter";
 import type { ColorMode } from "../vendor/bb-canvas/lib/kind-colors";
 import { missingFocusIds, visibleFocusIds } from "../vendor/bb-canvas/lib/focus-filter";
 import { overviewSettings, overviewTree, type OverviewSettings } from "../vendor/bb-canvas/lib/overview";
@@ -24,6 +27,7 @@ import {
 } from "../vendor/bb-canvas/lib/canvas-threads";
 import type { CanvasEdge, CanvasNode } from "../vendor/bb-canvas/lib/types";
 import { ActivitySection } from "./activity-section";
+import { StepLog } from "./step-log";
 
 type State = { projects: ProjectLike[]; threads: readonly ThreadListItem[] } | { error: string } | null;
 type Sdk = ReturnType<typeof useSdk>;
@@ -71,7 +75,7 @@ export async function loadChildren(
   if (typeof threadId !== "string") return { nodes: [] };
   if (node.kind === "thread") {
     const response = await sdk.threads.timeline({ threadId });
-    const result = limitTurnNodes(timelineToCanvas(threadId, { rows: response.rows as unknown as readonly TimelineRowLike[] }), turnsPerThread, pinned);
+    const result = limitTurnNodes(timelineToCanvas(threadId, { rows: response.rows as unknown as readonly TimelineRowLike[] }, STEPS_PER_TURN), turnsPerThread, pinned);
     return { ...result, nodes: await enrichTurnNodes(result.nodes, turnFirstLinePort(sdk)) };
   }
   if (node.kind === "turn" && typeof turnId === "string" && typeof sourceSeqStart === "number" && typeof sourceSeqEnd === "number") {
@@ -128,6 +132,12 @@ function saveColorBy(value: ColorMode) {
   }
 }
 
+/** Under "Active only", running threads and turns open by themselves, down
+ *  to their tool calls (BBP-298). Stable, so the canvas does not re-run it on
+ *  every render. */
+const openWhileActive = (node: CanvasNode): boolean =>
+  (node.kind === "thread" || node.kind === "turn" || node.kind === "subagent") && node.status === "running";
+
 const TOOLBAR_BUTTON =
   "rounded-md border px-2 py-0.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary";
 
@@ -161,7 +171,16 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [JSON.stringify(settings), JSON.stringify(overview)],
   );
-  const filter: ThreadFilter = defaults;
+  // The project pick is shared with the Activity Canvas pages through the
+  // same stored key; window, limit and turns come from the settings.
+  const [projectIds, setProjectIds] = useState<string[]>(() => loadProjectFilter());
+  const changeProjects = (ids: string[]) => {
+    saveProjectFilter(ids);
+    setProjectIds(ids);
+  };
+  const filter: ThreadFilter = useMemo(() => ({ ...defaults, projectIds }), [defaults, projectIds]);
+  // Threads picked in the "Focus" dropdown: only they and their path show.
+  const [picked, setPicked] = useState<string[]>([]);
   const [activeOnly, setActiveOnlyState] = useState(() => loadActiveOnly() ?? activeOnlyDefault);
   const setActiveOnly = (value: boolean) => {
     saveActiveOnly(value);
@@ -232,7 +251,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     if (state === null || !("threads" in state)) return null;
     return overviewTree({ projects: state.projects, threads: state.threads, filter, focusThreadId: focus, now: Date.now(), activeOnly, recentlyActive });
   }, [state, filter, focus, activeOnly, recentlyActive]);
-  const focusIds = useMemo(() => (focus === null ? [] : [threadNodeId(focus)]), [focus]);
+  const focusIds = useMemo(() => (focus === null ? picked : [...new Set([threadNodeId(focus), ...picked])]), [focus, picked]);
 
   useEffect(
     () =>
@@ -260,10 +279,19 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
   // Before the empty states: a focus on a thread that is gone is the answer
   // the user needs, whether or not anything else is left to show.
   if (layer !== null && focusIds.length > 0 && missingFocusIds(layer.nodes, focusIds).length === focusIds.length)
-    return <FocusUnavailable onShowAll={() => setFocus(null)} />;
+    return (
+      <FocusUnavailable
+        onShowAll={() => {
+          setFocus(null);
+          setPicked([]);
+        }}
+      />
+    );
   if (state.threads.length === 0) return <div className="p-4 text-sm text-muted-foreground">No threads yet.</div>;
   const toolbar = (
     <>
+      <ProjectFilter projects={state.projects} selected={projectIds} onChange={changeProjects} />
+      {layer !== null ? <FocusFilter nodes={layer.nodes} selected={picked} onChange={setPicked} /> : null}
       <button
         type="button"
         aria-pressed={activeOnly}
@@ -302,13 +330,16 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
       <div className="flex flex-col">
         <div className="flex flex-wrap items-center gap-1.5 px-2 py-1">{toolbar}</div>
         <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-          No threads in the overview window. Widen it in the plugin settings.
+          No threads match the projects and window. Widen the window in the plugin settings.
           <button
             type="button"
-            onClick={() => setActiveOnly(false)}
+            onClick={() => {
+              changeProjects([]);
+              setPicked([]);
+            }}
             className="rounded px-1 text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary"
           >
-            Show everything
+            Reset filters
           </button>
         </div>
       </div>
@@ -326,6 +357,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
           toolbar={toolbar}
           halo
           colorBy={colorBy}
+          autoExpand={activeOnly ? openWhileActive : undefined}
           controlsPosition="bottom-right"
           overlay={(shown) => <Legend nodes={shown} colorBy={colorBy} />}
           cornerAction={
@@ -353,13 +385,16 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
             const threadId = node.kind === "thread" ? node.meta?.threadId : undefined;
             if (typeof threadId !== "string") return null;
             return (
-              <ActivitySection
-                sdk={sdk}
-                threadId={threadId}
-                turnsPerThread={filter.turnsPerThread}
-                version={reloads.get(node.id) ?? 0}
-                onReveal={(nodeId, inCanvas) => revealEntry(threadId, nodeId, inCanvas)}
-              />
+              <>
+                <ActivitySection
+                  sdk={sdk}
+                  threadId={threadId}
+                  turnsPerThread={filter.turnsPerThread}
+                  version={reloads.get(node.id) ?? 0}
+                  onReveal={(nodeId, inCanvas) => revealEntry(threadId, nodeId, inCanvas)}
+                />
+                <StepLog sdk={sdk} threadId={threadId} version={reloads.get(node.id) ?? 0} onReveal={(nodeId) => revealEntry(threadId, nodeId, true)} />
+              </>
             );
           }}
           reloadChildren={reloads}

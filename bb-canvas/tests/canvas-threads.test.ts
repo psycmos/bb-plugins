@@ -1168,3 +1168,23 @@ describe("turnDetailsToCanvas with a steps limit (BBP-286)", () => {
     expect(nodes.find((node) => node.label === "Agent: Review")!.parentId).toBe("row:turn:earlier");
   });
 });
+
+// BBP-298: a running turn's steps come loose under the thread; the newest
+// ten stay, older ones go behind "+N earlier" like a finished turn's.
+describe("timelineToCanvas step limit", () => {
+  const step = (n: number) => ({ ...(fixtures.workCommandBash as TimelineRowLike), id: `w${n}` }) as TimelineRowLike;
+
+  it("keeps the newest ten loose steps on the thread and folds the rest", () => {
+    const { nodes } = timelineToCanvas("t1", { rows: Array.from({ length: 12 }, (_, n) => step(n)) }, 10);
+    const onThread = nodes.filter((node) => node.parentId === "thread:t1");
+    expect(onThread.filter((node) => node.kind === "tool-call")).toHaveLength(10);
+    const earlier = onThread.find((node) => node.label === "+2 earlier");
+    expect(earlier).toBeTruthy();
+    expect(nodes.filter((node) => node.parentId === earlier!.id).map((node) => node.id)).toEqual(["row:w0", "row:w1"]);
+  });
+
+  it("leaves everything in place without a limit", () => {
+    const { nodes } = timelineToCanvas("t1", { rows: Array.from({ length: 12 }, (_, n) => step(n)) });
+    expect(nodes.filter((node) => node.parentId === "thread:t1")).toHaveLength(12);
+  });
+});

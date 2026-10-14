@@ -130,6 +130,10 @@ export type CanvasViewProps = {
   halo?: boolean;
   /** Colour cards by type or by state, as agent-graph (BBP-298). */
   colorBy?: ColorMode;
+  /** Nodes opened on their own as they appear — "Active only" opens every
+   *  running thread and turn down to its tool calls (BBP-298). Each node is
+   *  opened once; one the user closes stays closed. Not persisted. */
+  autoExpand?: (node: CanvasNode) => boolean;
   /** Where the zoom controls sit (agent-graph: bottom right). */
   controlsPosition?: "bottom-left" | "bottom-right";
   /** Drawn over the canvas's bottom-left corner — agent-graph's legend. A
@@ -171,6 +175,7 @@ export function CanvasView({
   onSelectionChange,
   halo = false,
   colorBy,
+  autoExpand,
   controlsPosition,
   overlay,
   cornerAction,
@@ -406,6 +411,22 @@ export function CanvasView({
     setExpanded((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     startLoad(id);
   }
+
+  const autoOpened = useRef(new Set<string>());
+  useEffect(() => {
+    if (!autoExpand) return;
+    const open: string[] = [];
+    for (const node of allNodes) {
+      if (autoOpened.current.has(node.id) || !expandable.has(node.id) || !autoExpand(node)) continue;
+      autoOpened.current.add(node.id);
+      // An ancestor the user has closed keeps the node out of view anyway.
+      if (!expanded.has(node.id)) open.push(node.id);
+    }
+    if (open.length === 0) return;
+    setExpanded((prev) => new Set([...prev, ...open]));
+    for (const id of open) startLoad(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoExpand, allNodes, expandable]);
 
   const pendingReveal = useRef<string | null>(null);
   useEffect(() => {

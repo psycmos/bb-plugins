@@ -95,7 +95,7 @@ describe("the Canvas surface", () => {
     expect(card("Old")).toBeNull();
   });
 
-  it("puts only Active only, Collapse all and Expand all on the surface, as agent-graph (BBP-298)", async () => {
+  it("puts the project and focus filters, Active only, Color, Collapse all and Expand all on the surface (BBP-298)", async () => {
     canvasPanel(sdk([row("t1", "p1", "Live")]));
     await screen.findByRole("button", { name: /^Live — / });
     expect(screen.getByRole("button", { name: "Active only" })).toBeTruthy();
@@ -104,7 +104,8 @@ describe("the Canvas surface", () => {
     expect(screen.queryByRole("spinbutton")).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Projects/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Projects/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Focus/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Status/ })).toBeNull();
   });
 
@@ -131,7 +132,7 @@ describe("the Canvas surface", () => {
 
   it("says where to widen the window when it leaves no thread", async () => {
     canvasPanel(sdk([row("t2", "p1", "Old", { archivedAt: 1 })]));
-    expect(await screen.findByText("No threads in the overview window. Widen it in the plugin settings.")).toBeTruthy();
+    expect(await screen.findByText("No threads match the projects and window. Widen the window in the plugin settings.")).toBeTruthy();
   });
 
   it("opens the search with /", async () => {
@@ -210,7 +211,7 @@ describe("the Canvas chat tab and thread panel action", () => {
   it("shows FocusUnavailable for an unknown thread when the filters leave nothing", async () => {
     threadPanel("gone", [row("t1", "p1", "Old", { archivedAt: 1 })]);
     expect(await screen.findByRole("status")).toBeTruthy();
-    expect(screen.queryByText(/No threads in the overview window/)).toBeNull();
+    expect(screen.queryByText(/No threads match the projects and window/)).toBeNull();
   });
 
   it("focuses a thread named in the nav page's sub-path", async () => {
@@ -283,11 +284,12 @@ describe("the Canvas page live", () => {
     const { sdk, timeline, emit } = liveSdk(() => rows);
     canvasPanel(sdk, { overviewTurns: 10 });
     await open(/^Plain chat — /);
-    // Once for the canvas, once for the selected thread's Activity list (BBP-291).
-    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(2));
+    // Once for the canvas, once each for the selected thread's Activity list
+    // (BBP-291) and its Log (BBP-298).
+    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(3));
     rows = [turnRow("turn-1"), { ...turnRow("turn-2"), summaryCount: 0 }];
     emit({ entity: "thread", id: "t1", changes: ["events-appended"] });
-    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(6));
     await waitFor(() => expect(screen.getAllByRole("button", { name: /^Turn.* — / })).toHaveLength(2));
   });
 
@@ -530,5 +532,38 @@ describe("the Canvas Activity list when the timeline fails", () => {
     await waitFor(() => expect(sdk.threads.timeline.mock.calls.length).toBeGreaterThan(calls));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.getByText("1 of 1 in canvas")).toBeTruthy();
+  });
+});
+
+// BBP-298: filters back on the surface, Active only opens running work down
+// to its tool calls, and the sidebar logs every step of the newest turns.
+describe("the Canvas filters, auto-open and Log (BBP-298)", () => {
+  it("narrows to the projects picked in the Projects filter", async () => {
+    canvasPanel({
+      projects: { list: async () => [{ id: "p1", name: "Shop" }, { id: "p2", name: "Blog" }] },
+      threads: { list: async () => [row("t1", "p1", "In shop"), row("t2", "p2", "In blog")] },
+    });
+    expect(await screen.findByRole("button", { name: /^In shop — / })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Projects/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Blog" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^In shop — / })).toBeNull());
+    expect(screen.getByRole("button", { name: /^In blog — / })).toBeTruthy();
+  });
+
+  it("opens a running thread and its running turn by itself under Active only", async () => {
+    localStorage.setItem("bb-canvas:active-only", "true");
+    const { sdk, timelineTurnSummaryDetails } = liveSdk(() => [{ ...turnRow("turn-1"), status: "running" }]);
+    sdk.threads.list = async () => [row("t1", "p1", "Plain chat", { status: "active" })];
+    canvasPanel(sdk);
+    await waitFor(() => expect(timelineTurnSummaryDetails).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: /Review the diff/ })).toBeTruthy();
+  });
+
+  it("logs every step of the selected thread's newest turns in the sidebar", async () => {
+    const { sdk } = liveSdk(() => [turnRow("turn-1")]);
+    canvasPanel(sdk);
+    fireEvent.click(await screen.findByRole("button", { name: /^Plain chat — / }));
+    const log = await screen.findByRole("region", { name: "Log" });
+    expect(within(log).getByText(/Review the diff/)).toBeTruthy();
   });
 });

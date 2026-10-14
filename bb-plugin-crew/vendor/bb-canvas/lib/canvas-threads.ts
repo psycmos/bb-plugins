@@ -708,6 +708,7 @@ function answersByTurn(rows: readonly TimelineRowLike[]): Map<string, string> {
 export function timelineToCanvas(
   threadId: string,
   response: { rows: readonly TimelineRowLike[] },
+  stepsLimit: number | null = null,
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
   const parent = threadNodeId(threadId);
   const { byTurnKey: requestRows, consumed } = requestsByTurn(response.rows);
@@ -757,7 +758,26 @@ export function timelineToCanvas(
     nodes.push(...mapRows(row.children ?? [], turnNodeId, threadId));
   });
   flush();
-  return { nodes, edges: [] };
+  // A running turn's steps arrive loose under the thread, not yet grouped
+  // under a turn: the same newest-N rule applies to them (BBP-298).
+  if (stepsLimit === null) return { nodes, edges: [] };
+  const parents = new Set(nodes.map((node) => node.parentId).filter((id): id is string => id !== null));
+  return { nodes: [...parents].reduce((list, parentId) => limitSteps(list, parentId, stepsLimit), nodes), edges: [] };
+}
+
+const STEP_KINDS = new Set<CanvasNode["kind"]>(["tool-call", "subagent"]);
+
+/** Keeps the newest `limit` tool-call/subagent children of `parentId` on it;
+ *  the older ones move under one collapsed "+N earlier" node (BBP-286). */
+function limitSteps(nodes: CanvasNode[], parentId: string, limit: number): CanvasNode[] {
+  const steps = nodes.filter((node) => node.parentId === parentId && STEP_KINDS.has(node.kind));
+  if (steps.length <= limit) return nodes;
+  const hidden = new Set(steps.slice(0, steps.length - limit).map((node) => node.id));
+  const earlierId = `${parentId}:earlier`;
+  const earlier: CanvasNode = { id: earlierId, kind: "system-event", label: `+${hidden.size} earlier`, parentId, meta: { earlier: hidden.size } };
+  const moved = nodes.map((node) => (hidden.has(node.id) ? { ...node, parentId: earlierId } : node));
+  const at = moved.findIndex((node) => hidden.has(node.id));
+  return [...moved.slice(0, at), earlier, ...moved.slice(at)];
 }
 
 /** Converts a turn's lazily-fetched steps (`timelineTurnSummaryDetails`'s

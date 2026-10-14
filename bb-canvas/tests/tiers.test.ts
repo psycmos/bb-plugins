@@ -23,8 +23,18 @@ describe("tiers", () => {
     }
   });
 
-  it("draws every kind as a two-line card, as agent-graph (BBP-298)", () => {
-    for (const kind of ALL_KINDS) expect(TIER_OF[kind]).toBe("card");
+  it("draws agents/project/crew and graph-run/thread/member as 'card' (agent-graph, BBP-298), the rest as 'row'", () => {
+    expect(TIER_OF.agents).toBe("card");
+    expect(TIER_OF.project).toBe("card");
+    expect(TIER_OF.crew).toBe("card");
+    expect(TIER_OF["graph-run"]).toBe("card");
+    expect(TIER_OF.thread).toBe("card");
+    expect(TIER_OF.member).toBe("card");
+    expect(TIER_OF.step).toBe("row");
+    expect(TIER_OF.turn).toBe("row");
+    expect(TIER_OF["tool-call"]).toBe("row");
+    expect(TIER_OF.subagent).toBe("row");
+    expect(TIER_OF["system-event"]).toBe("row");
   });
 
   it("gives a group a 28px header height, a card 220x52, a row 200x26", () => {
@@ -36,7 +46,7 @@ describe("tiers", () => {
   it("sizeOf looks a kind's size up through its tier", () => {
     expect(sizeOf("crew")).toEqual(TIER_SIZE.card);
     expect(sizeOf("member")).toEqual(TIER_SIZE.card);
-    expect(sizeOf("step")).toEqual(TIER_SIZE.card);
+    expect(sizeOf("step")).toEqual(TIER_SIZE.row);
   });
 
   it("defines a typography scale for all three tiers", () => {
