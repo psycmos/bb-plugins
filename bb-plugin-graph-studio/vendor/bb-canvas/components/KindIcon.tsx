@@ -90,6 +90,13 @@ function describeToolCall(meta?: Record<string, unknown>): string {
 }
 
 export function describeNode(kind: CanvasNodeKind, childCount: number, meta?: Record<string, unknown>): string {
+  if (meta?.step === true) {
+    // A graph step (BBP-303): what it is, how often it ran, or that it has not yet.
+    if (meta.ghost === true) return "Step · not reached";
+    if (meta.gate === true) return "Approval";
+    const attempts = typeof meta.attempts === "number" && meta.attempts > 1 ? `×${meta.attempts}` : undefined;
+    return ["Step", attempts].filter(Boolean).join(" · ");
+  }
   if (kind === "thread" && meta?.member === true) {
     // A crew member's thread (BBP-190): lead or not, what it is doing, provider.
     const facts = [meta.lead === true ? "lead" : undefined, meta.activity ?? meta.state, meta.provider].filter(

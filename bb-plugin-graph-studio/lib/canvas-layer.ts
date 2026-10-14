@@ -54,6 +54,7 @@ export function graphCanvasLayer(
   projectId: string,
   runs: CanvasRun[],
   memberByThread: ReadonlyMap<string, string>,
+  steps: (layer: CanvasLayer, run: CanvasRun, runId: string) => void = treeSteps,
 ): CanvasLayer {
   const layer: CanvasLayer = { nodes: [], edges: [], expanded: [] };
   const parentOf = (run: CanvasRun) =>
@@ -69,7 +70,7 @@ export function graphCanvasLayer(
     const sorted = [...group].sort((a, b) => b.createdAt - a.createdAt);
     const shown = sorted.filter((run, index) => index === 0 || inProgress(run));
     const folded = sorted.filter((run) => !shown.includes(run));
-    for (const run of shown) addRun(layer, run, parent);
+    for (const run of shown) addRun(layer, run, parent, steps);
     if (folded.length > 0) {
       const more = `more-runs:${parent}`;
       layer.nodes.push({
@@ -79,13 +80,13 @@ export function graphCanvasLayer(
         parentId: parent,
         meta: { placeholder: true, runIds: folded.map((run) => run.id) },
       });
-      for (const run of folded) addRun(layer, run, more);
+      for (const run of folded) addRun(layer, run, more, steps);
     }
   }
   return layer;
 }
 
-function addRun(layer: CanvasLayer, run: CanvasRun, parentId: string): void {
+function addRun(layer: CanvasLayer, run: CanvasRun, parentId: string, steps: (layer: CanvasLayer, run: CanvasRun, runId: string) => void): void {
   const id = runNodeId(run.id);
   const latest = new Map<string, { attempt: number; status: StepStatus }>();
   for (const step of run.nodeRuns) {
@@ -118,6 +119,22 @@ function addRun(layer: CanvasLayer, run: CanvasRun, parentId: string): void {
     },
   });
 
+  if (steps === flowSteps) layer.nodes[layer.nodes.length - 1]!.meta!.flow = true;
+  steps(layer, run, id);
+}
+
+function latestOf(run: CanvasRun) {
+  const latest = new Map<string, { attempt: number; status: StepStatus; childThreadId?: string | null }>();
+  for (const step of run.nodeRuns) {
+    const seen = latest.get(step.nodeId);
+    if (!seen || step.attempt >= seen.attempt) latest.set(step.nodeId, step);
+  }
+  return latest;
+}
+
+/** The Activity Canvas's steps: one row per graph node under the run. */
+function treeSteps(layer: CanvasLayer, run: CanvasRun, id: string): void {
+  const latest = latestOf(run);
   for (const node of run.graph.nodes) {
     const last = latest.get(node.id);
     const step: CanvasNode = {
@@ -143,6 +160,65 @@ function addRun(layer: CanvasLayer, run: CanvasRun, parentId: string): void {
     if (edge.label) back.label = edge.label;
     if (nowKeys.has(edge.key)) back.state = "now";
     layer.edges.push(back);
+  }
+}
+
+/**
+ * BBP-303: the standalone Canvas's steps. A step that ran is the thread it ran
+ * in (`thread:<id>`, so the Canvas draws and opens it like any thread); one
+ * not reached yet is an empty outline; a human gate is a small step that
+ * waits for you. Each carries its layer and lane from the graph's own
+ * layout, and the graph's edges join them left to right.
+ */
+export function flowSteps(layer: CanvasLayer, run: CanvasRun, runId: string): void {
+  const latest = latestOf(run);
+  const layout = layoutGraph(run.graph);
+  const pseudo = new Set([START_NODE, END_NODE]);
+  const placedReal = layout.nodes.filter((node) => !pseudo.has(node.id));
+  const minLayer = Math.min(...placedReal.map((node) => node.layer), Number.POSITIVE_INFINITY);
+  const laneOf = new Map<string, number>();
+  const byLayer = new Map<number, typeof placedReal>();
+  for (const node of placedReal) byLayer.set(node.layer, [...(byLayer.get(node.layer) ?? []), node]);
+  for (const list of byLayer.values()) [...list].sort((a, b) => a.x - b.x).forEach((node, index) => laneOf.set(node.id, index));
+  const layerOf = new Map(placedReal.map((node) => [node.id, node.layer - minLayer]));
+  const waitingOn = run.status === "waiting-human" ? (run.pendingQuestion ?? null) : null;
+  const idOf = new Map<string, string>();
+  for (const node of run.graph.nodes) {
+    const last = latest.get(node.id);
+    const threadId = last?.childThreadId ?? null;
+    const id = threadId ? `thread:${threadId}` : stepNodeId(run.id, node.id);
+    idOf.set(node.id, id);
+    const attempts = run.nodeRuns.filter((step) => step.nodeId === node.id);
+    const gate = node.kind === "human";
+    const waits = waitingOn?.nodeId === node.id;
+    layer.nodes.push({
+      id,
+      kind: gate ? "step" : "thread",
+      label: node.label,
+      ...(waits ? { status: "waiting" as const } : last ? { status: STEP_STATUS[last.status] } : {}),
+      parentId: runId,
+      meta: {
+        step: true,
+        nodeId: node.id,
+        layer: layerOf.get(node.id) ?? 0,
+        lane: laneOf.get(node.id) ?? 0,
+        attempts: attempts.length,
+        ...(threadId ? { threadId } : {}),
+        attemptThreads: attempts.flatMap((step) => (step.childThreadId ? [step.childThreadId] : [])),
+        ...(gate ? { gate: true } : {}),
+        ...(!last && !gate ? { ghost: true } : {}),
+        ...(waits ? { waitsForYou: { runId: run.id, nodeId: node.id, label: waitingOn!.label, question: waitingOn!.question } } : {}),
+      },
+    });
+  }
+  for (const edge of layout.edges) {
+    if (pseudo.has(edge.from) || pseudo.has(edge.to)) continue;
+    const from = idOf.get(edge.from);
+    const to = idOf.get(edge.to);
+    if (!from || !to) continue;
+    const step: CanvasEdge = { from, to, variant: edge.isBack ? "back" : "step" };
+    if (edge.label) step.label = edge.label;
+    layer.edges.push(step);
   }
 }
 
@@ -183,7 +259,7 @@ export async function canvasPageLayer(args: {
  */
 export function canvasExtensionLayer(projectId: string, runs: CanvasRun[]): CanvasLayer & { frames: [] } {
   const byThread = new Map(runs.flatMap((run) => (run.threadId !== null ? [[run.threadId, `thread:${run.threadId}`] as const] : [])));
-  const layer = graphCanvasLayer(projectId, runs, byThread);
+  const layer = graphCanvasLayer(projectId, runs, byThread, flowSteps);
   const project = projectNodeId(projectId);
   return {
     ...layer,

@@ -19,7 +19,7 @@ describe("canvasExtensionLayer", () => {
     const node = layer.nodes.find((n) => n.kind === "graph-run")!;
     expect(node.parentId).toBe("thread:t1");
     expect(node.meta).toMatchObject({ fallbackParentId: "project:p1" });
-    expect(layer.nodes.some((n) => n.kind === "step" && n.label === "Step A")).toBe(true);
+    expect(layer.nodes.some((n) => n.label === "Step A" && n.meta?.step === true)).toBe(true);
     expect(layer.frames).toEqual([]);
   });
 
@@ -44,5 +44,55 @@ describe("canvasExtensionLayer progress and needs you (BBP-303)", () => {
     } as never;
     const run = canvasExtensionLayer("p1", [waiting]).nodes.find((n) => n.kind === "graph-run")!;
     expect(run.meta).toMatchObject({ progress: ["done", "waiting"], needsYou: { runId: "r3", nodeId: "b", question: "OK?" } });
+  });
+});
+
+describe("flow steps for the Canvas (BBP-303)", () => {
+  const graph = {
+    id: "g",
+    name: "G",
+    nodes: [
+      { id: "plan", label: "plan", kind: "agent" },
+      { id: "a", label: "A", kind: "agent" },
+      { id: "b", label: "B", kind: "agent" },
+      { id: "ok", label: "Approve", kind: "human" },
+    ],
+    edges: [
+      { from: "plan", to: "a" },
+      { from: "plan", to: "b" },
+      { from: "a", to: "ok" },
+      { from: "b", to: "ok" },
+    ],
+  };
+  const run = {
+    id: "r9",
+    projectId: "p1",
+    threadId: null,
+    status: "waiting-human",
+    createdAt: 1,
+    graph,
+    nodeRuns: [
+      { nodeId: "plan", attempt: 1, status: "done", childThreadId: "thrPlan" },
+      { nodeId: "a", attempt: 1, status: "done", childThreadId: "thrA" },
+    ],
+    pendingQuestion: { nodeId: "ok", label: "Approve", question: "OK?" },
+  } as never;
+  const layer = canvasExtensionLayer("p1", [run]);
+  const byLabel = new Map(layer.nodes.map((n) => [n.label, n]));
+
+  it("marks the run as a flow and draws each step that ran as its thread", () => {
+    expect(layer.nodes.find((n) => n.kind === "graph-run")!.meta).toMatchObject({ flow: true });
+    expect(byLabel.get("plan")).toMatchObject({ id: "thread:thrPlan", kind: "thread", meta: { threadId: "thrPlan", layer: 0 } });
+  });
+
+  it("puts parallel steps in one layer on two lanes, and a step not reached as an outline", () => {
+    expect(byLabel.get("A")!.meta!.layer).toBe(byLabel.get("B")!.meta!.layer);
+    expect(byLabel.get("A")!.meta!.lane).not.toBe(byLabel.get("B")!.meta!.lane);
+    expect(byLabel.get("B")!.meta).toMatchObject({ ghost: true });
+  });
+
+  it("makes the human gate a waiting step and joins the steps with step edges", () => {
+    expect(byLabel.get("Approve")).toMatchObject({ kind: "step", status: "waiting", meta: { gate: true, waitsForYou: { nodeId: "ok" } } });
+    expect(layer.edges).toContainEqual(expect.objectContaining({ from: "thread:thrPlan", to: "thread:thrA", variant: "step" }));
   });
 });

@@ -43,7 +43,8 @@ export type CanvasFrame = {
   label?: string;
 };
 
-export type CanvasEdgeVariant = "flow" | "back" | "message";
+/** "step": one step of a flow to the next, left to right (BBP-303). */
+export type CanvasEdgeVariant = "flow" | "back" | "message" | "step";
 
 /** Whether this edge leads to a node that is running right now (animated),
  *  or sits on the path from the root to the current selection

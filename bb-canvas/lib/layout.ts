@@ -26,6 +26,14 @@ export const FRAME_PADDING = 16;
 /** Room above a frame's first card for its label, kept free in the layout so
  *  neither the label nor the frame reach into the cards above (BBP-191). */
 export const FRAME_HEAD = 22;
+/** BBP-303 flow: gap between two steps of a flow, and between two lanes. */
+export const FLOW_GAP = 40;
+export const LANE_GAP = 18;
+/** How far a step's own activity (turns, tool calls) is indented below it. */
+export const FLOW_INDENT = 24;
+
+/** A flow block, relative to the flow node's right edge (x) and centre (y). */
+type FlowBlock = { nodes: { id: string; x: number; y: number }[]; minY: number; maxY: number; width: number; parents: Map<string, string> };
 
 export type PlacedNode = {
   id: string;
@@ -112,15 +120,94 @@ export function layoutTree(
   const columnOf = new Map<string, number>();
   const parentIdOf = new Map<string, string | null>();
   const order: string[] = [];
+  // BBP-303: an open node marked `meta.flow` (a graph run) lays its children
+  // out as a flow — left to right by `meta.layer`, stacked by `meta.lane` —
+  // instead of as a tree column; each child's own open activity sits
+  // indented below it.
+  const flows = new Map<string, FlowBlock>();
 
   const visit = (parentId: string | null, column: number) => {
     for (const node of childrenOf.get(parentId) ?? []) {
       columnOf.set(node.id, column);
       parentIdOf.set(node.id, parentId);
       order.push(node.id);
-      if (expanded.has(node.id)) visit(node.id, column + 1);
+      if (!expanded.has(node.id)) continue;
+      if (node.meta?.flow === true && (childrenOf.get(node.id)?.length ?? 0) > 0) flows.set(node.id, flowBlock(node.id));
+      else visit(node.id, column + 1);
     }
   };
+
+  function flowBlock(flowId: string): FlowBlock {
+    const steps = childrenOf.get(flowId) ?? [];
+    const layerOf = (node: CanvasNode, index: number) => (typeof node.meta?.layer === "number" ? node.meta.layer : index);
+    const laneOf = (node: CanvasNode) => (typeof node.meta?.lane === "number" ? node.meta.lane : 0);
+    const layers = new Map<number, CanvasNode[]>();
+    steps.forEach((node, index) => layers.set(layerOf(node, index), [...(layers.get(layerOf(node, index)) ?? []), node]));
+    const block: FlowBlock = { nodes: [], minY: 0, maxY: 0, width: 0, parents: new Map() };
+    let x = 0;
+    for (const layer of [...layers.keys()].sort((a, b) => a - b)) {
+      const lanes = layers.get(layer)!.sort((a, b) => laneOf(a) - laneOf(b));
+      // Each lane: the step card, and below it its own open activity.
+      const stacks = lanes.map((node) => {
+        const size = sizeOf(node.kind);
+        const sub = expanded.has(node.id) ? subtree(node) : null;
+        return { node, size, sub, height: size.height + (sub ? 10 + sub.height : 0), width: Math.max(size.width, sub ? FLOW_INDENT + sub.width : 0) };
+      });
+      // Card centres stacked, then shifted so their mean sits on the flow's
+      // centre line: a one-lane layer stays on it, whatever opens below.
+      let top = 0;
+      const centres = stacks.map((stack) => {
+        const centre = top + stack.size.height / 2;
+        top += stack.height + LANE_GAP;
+        return centre;
+      });
+      const shift = centres.reduce((sum, c) => sum + c, 0) / centres.length;
+      stacks.forEach((stack, index) => {
+        const cardTop = centres[index]! - shift - stack.size.height / 2;
+        block.nodes.push({ id: stack.node.id, x, y: cardTop });
+        block.parents.set(stack.node.id, flowId);
+        block.minY = Math.min(block.minY, cardTop);
+        block.maxY = Math.max(block.maxY, cardTop + stack.height);
+        if (stack.sub) {
+          for (const placedSub of stack.sub.nodes) block.nodes.push({ id: placedSub.id, x: x + FLOW_INDENT + placedSub.x, y: cardTop + stack.size.height + 10 + placedSub.y });
+          for (const [child, parent] of stack.sub.parents) block.parents.set(child, parent);
+        }
+      });
+      x += Math.max(...stacks.map((stack) => stack.width)) + FLOW_GAP;
+    }
+    block.width = Math.max(0, x - FLOW_GAP);
+    return block;
+  }
+
+  /** A step's own open activity, laid out as an ordinary tree, relative to
+   *  its top-left corner (the step card itself left out). */
+  function subtree(root: CanvasNode): { nodes: { id: string; x: number; y: number }[]; parents: Map<string, string>; width: number; height: number } | null {
+    const below: CanvasNode[] = [];
+    const walk = (id: string) => {
+      for (const child of childrenOf.get(id) ?? []) {
+        below.push(child);
+        walk(child.id);
+      }
+    };
+    walk(root.id);
+    if (below.length === 0) return null;
+    const inner = layoutTree([{ ...root, parentId: null }, ...below], expanded);
+    const own = inner.positions.find((p) => p.id === root.id)!;
+    const rest = inner.positions.filter((p) => p.id !== root.id);
+    if (rest.length === 0) return null;
+    // The tree's first column of children starts right of the root card:
+    // pull it back under the card, indented.
+    const dx = own.x + own.width + COLUMN_GAP;
+    const top = Math.min(...rest.map((p) => p.y));
+    const parents = new Map(below.map((node) => [node.id, node.parentId!]));
+    return {
+      nodes: rest.map((p) => ({ id: p.id, x: p.x - dx, y: p.y - top })),
+      parents,
+      width: Math.max(...rest.map((p) => p.x - dx + p.width)),
+      height: Math.max(...rest.map((p) => p.y - top + p.height)),
+    };
+  }
+
   visit(null, 0);
 
   // Every visible leaf takes the next free vertical slot, stacked by its own
@@ -144,6 +231,18 @@ export function layoutTree(
   const placeCenters = (id: string): number => {
     const kids = visibleChildren.get(id) ?? [];
     if (kids.length === 0) {
+      const block = flows.get(id);
+      if (block) {
+        // A flow is a leaf of the tree as tall as its block (BBP-303).
+        const half = sizeOf(byId.get(id)!.kind).height / 2;
+        const above = Math.max(half, -block.minY);
+        const below = Math.max(half, block.maxY);
+        const top = nextY;
+        nextY = top + above + below + ROW_GAP;
+        centerYOf.set(id, top + above);
+        lastFrame = undefined;
+        return top + above;
+      }
       const height = sizeOf(byId.get(id)!.kind).height;
       // Entering a frame: room for its padding and label above the card;
       // leaving one: room for its padding below the last card.
@@ -196,6 +295,21 @@ export function layoutTree(
     });
   }
 
+  // Flow blocks: right of their flow node, centred on its centre line.
+  for (const [flowId, block] of flows) {
+    const flowPlaced = placed.get(flowId);
+    if (!flowPlaced) continue;
+    const originX = flowPlaced.x + flowPlaced.width + COLUMN_GAP;
+    const centre = flowPlaced.y + flowPlaced.height / 2;
+    for (const entry of block.nodes) {
+      const { width, height } = sizeOf(byId.get(entry.id)!.kind);
+      placed.set(entry.id, { id: entry.id, x: originX + entry.x, y: centre + entry.y, width, height, column: flowPlaced.column + 1 });
+      parentIdOf.set(entry.id, block.parents.get(entry.id) ?? flowId);
+      columnOf.set(entry.id, flowPlaced.column + 1);
+      order.push(entry.id);
+    }
+  }
+
   const onSelectedPath = selectedPathEdges(selectedId ?? null, parentIdOf);
   // As agent-graph: the whole path from the root down to running work is
   // marked, not only the last edge into the running node (BBP-298).
@@ -213,6 +327,10 @@ export function layoutTree(
   const flowEdges: PlacedEdge[] = order.flatMap((id) => {
     const parentId = parentIdOf.get(id)!;
     if (parentId === null) return [];
+    // Inside a flow only the first layer hangs off the flow node; later
+    // steps are reached by their "step" edges.
+    const node = byId.get(id)!;
+    if (flows.has(parentId) && typeof node.meta?.layer === "number" && node.meta.layer > 0) return [];
     return [flowEdge(placed.get(parentId)!, placed.get(id)!, byId.get(id)!, onSelectedPath.has(id), runningBranch.has(id), needsBranch.has(id))];
   });
 
@@ -220,7 +338,7 @@ export function layoutTree(
     const from = placed.get(edge.from);
     const to = placed.get(edge.to);
     if (!from || !to) return [];
-    return [edge.variant === "back" ? backEdge(from, to, edge) : messageEdge(from, to, edge)];
+    return [edge.variant === "back" ? backEdge(from, to, edge) : edge.variant === "step" ? stepEdge(from, to, edge, runningBranch, byId) : messageEdge(from, to, edge)];
   });
 
   // Derived from the actual placed extents rather than a per-column/per-row
@@ -300,14 +418,58 @@ function flowEdge(from: PlacedNode, to: PlacedNode, toNode: CanvasNode, onSelect
   const toX = to.x;
   const toY = to.y + to.height / 2;
   const midX = (fromX + toX) / 2;
-  const path = [`M ${fromX} ${fromY}`, `C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`].join(" ");
+  // A child placed below its parent (a step's activity, BBP-303): down from
+  // the parent's left part, then right into the child.
+  const below = to.x < from.x + from.width - 1 && to.y >= from.y + from.height;
+  const downX = from.x + 12;
+  const path = below
+    ? `M ${downX} ${from.y + from.height} L ${downX} ${toY - 6} Q ${downX} ${toY}, ${downX + 6} ${toY} L ${toX} ${toY}`
+    : [`M ${fromX} ${fromY}`, `C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`].join(" ");
   const state = flowEdgeState(toNode, onSelectedPath, leadsToRunning, leadsToNeeds);
   return { from: from.id, to: to.id, variant: "flow", path, label: "", isBack: false, ...(state ? { state } : {}) };
 }
 
+/** One step of a flow to the next (BBP-303): right edge to left edge. Dashed
+ *  blue while the target runs. */
+function stepEdge(from: PlacedNode, to: PlacedNode, edge: CanvasEdge, running: ReadonlySet<string>, byId: ReadonlyMap<string, CanvasNode>): PlacedEdge {
+  const fromX = from.x + from.width;
+  const fromY = from.y + from.height / 2;
+  const toX = to.x;
+  const toY = to.y + to.height / 2;
+  const midX = (fromX + toX) / 2;
+  const target = byId.get(to.id);
+  const state: CanvasEdgeState | undefined = target?.meta?.needsYou || target?.meta?.waitsForYou ? "needs" : target?.status === "running" || running.has(to.id) ? "now" : edge.state;
+  return {
+    from: from.id,
+    to: to.id,
+    variant: "step",
+    path: `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`,
+    // No label: the gap between two steps holds none without covering a card.
+    label: "",
+    isBack: false,
+    ...(state ? { state } : {}),
+  };
+}
+
 /** Bows out past the right edge of the column the edge starts in, so a loop
- *  reads as a loop instead of hiding behind the nodes between its ends. */
+ *  reads as a loop instead of hiding behind the nodes between its ends. In a
+ *  flow, where the loop runs back to the left, it arcs above both cards. */
 function backEdge(from: PlacedNode, to: PlacedNode, edge: CanvasEdge): PlacedEdge {
+  if (to.x + to.width <= from.x) {
+    const top = Math.min(from.y, to.y) - 36;
+    const fx = from.x + from.width / 2;
+    const tx = to.x + to.width / 2;
+    return {
+      from: from.id,
+      to: to.id,
+      variant: "back",
+      path: `M ${fx} ${from.y} C ${fx} ${top}, ${tx} ${top}, ${tx} ${to.y}`,
+      label: edge.label && edge.label.length > 22 ? `${edge.label.slice(0, 21)}…` : (edge.label ?? ""),
+      isBack: true,
+      ...(edge.state ? { state: edge.state } : {}),
+      ...relationOf(edge),
+    };
+  }
   const laneX = Math.max(from.x + from.width, to.x + to.width) + BACK_EDGE_LANE;
   const fromX = from.x + from.width;
   const fromY = from.y + from.height / 2;

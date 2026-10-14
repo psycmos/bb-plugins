@@ -359,7 +359,10 @@ function toFlow(
       dimmed: dimmedIds.has(node.id),
       loadFailed: failedLoads.has(node.id),
       activePath: activePath.has(node.id),
-      needsYou: Boolean(node.meta?.needsYou),
+      // A gate waiting inside an open run shows the state too, but only the
+      // run itself counts (meta.needsYou) — one question, one count.
+      needsYou: Boolean(node.meta?.needsYou || node.meta?.waitsForYou),
+      ghost: node.meta?.ghost === true,
       needsPath: needsPath.has(node.id),
       ...(Array.isArray(node.meta?.progress) ? { progress: node.meta.progress as string[] } : {}),
       ...(colorBy ? { accent: accentOf(node, colorBy) } : {}),

@@ -52,6 +52,8 @@ export type NodeCardProps = {
   needsPath?: boolean;
   /** One status per step of a graph run: a thin strip along the bottom. */
   progress?: readonly string[];
+  /** A step not reached yet (BBP-303): an empty outline, nothing to open. */
+  ghost?: boolean;
 };
 
 const AMBER = "var(--warning)";
@@ -153,6 +155,7 @@ export function NodeCard({
   needsYou = false,
   needsPath = false,
   progress,
+  ghost = false,
 }: NodeCardProps) {
   ensurePulseStyles();
   if (log) return <LogRow label={label} status={status} selected={selected} halo={halo} onClick={onClick} dimmed={dimmed} expander={expander} log={log} />;
@@ -201,6 +204,7 @@ export function NodeCard({
         ...(halo ? { boxShadow: "0 0 0 6px color-mix(in srgb, var(--ring) 35%, transparent)" } : needsYou ? { boxShadow: `0 0 0 3px color-mix(in oklab, ${NEEDS} 22%, transparent)` } : {}),
         background,
         position: "relative",
+        ...(ghost ? { border: "1px dashed var(--border)", background: "transparent", color: "var(--muted-foreground)" } : {}),
         color: "var(--foreground)",
         textAlign: "left",
         cursor: dimmed ? "default" : "pointer",

@@ -362,3 +362,43 @@ describe("frames and crew links (BBP-191)", () => {
     expect(laneX).toBeGreaterThan(a.x + a.width);
   });
 });
+
+describe("flow layout for graph runs (BBP-303)", () => {
+  const nodes: CanvasNode[] = [
+    { id: "run", kind: "graph-run", label: "run", parentId: null, meta: { flow: true } },
+    { id: "plan", kind: "thread", label: "plan", parentId: "run", meta: { step: true, layer: 0, lane: 0 } },
+    { id: "a", kind: "thread", label: "a", parentId: "run", meta: { step: true, layer: 1, lane: 0 } },
+    { id: "b", kind: "thread", label: "b", parentId: "run", meta: { step: true, layer: 1, lane: 1 } },
+    { id: "join", kind: "thread", label: "join", parentId: "run", meta: { step: true, layer: 2, lane: 0 } },
+    { id: "turn", kind: "turn", label: "turn of a", parentId: "a" },
+  ];
+  const edges: CanvasEdge[] = [
+    { from: "plan", to: "a", variant: "step" },
+    { from: "plan", to: "b", variant: "step" },
+    { from: "a", to: "join", variant: "step" },
+    { from: "b", to: "join", variant: "step" },
+  ];
+  const at = (layout: ReturnType<typeof layoutTree>, id: string) => layout.positions.find((p) => p.id === id)!;
+
+  it("lays the steps out left to right by layer and stacks a layer's lanes", () => {
+    const layout = layoutTree(nodes, new Set(["run"]), edges);
+    expect(at(layout, "a").x).toBeGreaterThan(at(layout, "plan").x);
+    expect(at(layout, "a").x).toBe(at(layout, "b").x);
+    expect(at(layout, "b").y).toBeGreaterThan(at(layout, "a").y);
+    expect(at(layout, "join").x).toBeGreaterThan(at(layout, "a").x);
+  });
+
+  it("joins the steps with step edges and hangs only the first layer off the run", () => {
+    const layout = layoutTree(nodes, new Set(["run"]), edges);
+    expect(layout.edges.filter((e) => e.from === "run").map((e) => e.to)).toEqual(["plan"]);
+    expect(layout.edges.filter((e) => e.variant === "step")).toHaveLength(4);
+  });
+
+  it("opens a step's own activity below it and pushes the lanes beneath down", () => {
+    const closed = layoutTree(nodes, new Set(["run"]), edges);
+    const open = layoutTree(nodes, new Set(["run", "a"]), edges);
+    const turn = at(open, "turn");
+    expect(turn.y).toBeGreaterThan(at(open, "a").y + at(open, "a").height);
+    expect(at(open, "b").y - at(open, "a").y).toBeGreaterThan(at(closed, "b").y - at(closed, "a").y);
+  });
+});

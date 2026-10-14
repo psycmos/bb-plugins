@@ -26,7 +26,11 @@ export function mergeExtensions(
     if (node.kind === "member" && typeof threadId === "string" && threadId !== "") rename.set(node.id, threadNodeId(threadId));
   }
   const to = (id: string) => rename.get(id) ?? id;
-  const taken = new Set(rename.values());
+  // The overview's own card of a thread gives way to the extension's: a
+  // crew member, or a graph step that ran in it (any of its attempts).
+  const taken = new Set([...rename.values(), ...extNodes.map((node) => node.id)]);
+  for (const node of extNodes)
+    for (const threadId of Array.isArray(node.meta?.attemptThreads) ? (node.meta.attemptThreads as string[]) : []) taken.add(threadNodeId(threadId));
   // The overview's own card of a member's thread gives way to the member.
   const own = base.nodes.filter((node) => !taken.has(node.id));
   const ownIds = new Set(own.map((node) => node.id));

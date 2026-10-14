@@ -152,7 +152,7 @@ const canvasNodeSchema = z.object({
 const canvasEdgeSchema = z.object({
   from: z.string(),
   to: z.string(),
-  variant: z.enum(["flow", "back", "message"]),
+  variant: z.enum(["flow", "back", "message", "step"]),
   label: z.string().optional(),
   count: z.number().optional(),
   // A crew link drawn on demand (BBP-202/203); without these the canvas
