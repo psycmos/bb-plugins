@@ -110,9 +110,11 @@ export function describeNode(kind: CanvasNodeKind, childCount: number, meta?: Re
   if (kind === "project") {
     // Crews hang under a project too (BBP-190): counted apart from threads.
     const crews = typeof meta?.crews === "number" ? meta.crews : 0;
-    const threads = childCount - crews;
+    const runs = typeof meta?.runs === "number" ? meta.runs : 0;
+    const threads = childCount - crews - runs;
     const parts = [`${threads} ${threads === 1 ? "thread" : "threads"}`];
     if (crews > 0) parts.push(`${crews} ${crews === 1 ? "crew" : "crews"}`);
+    if (runs > 0) parts.push(`${runs} ${runs === 1 ? "run" : "runs"}`);
     return parts.join(" · ");
   }
   // A message row is a turn's request or its reply, not another turn.

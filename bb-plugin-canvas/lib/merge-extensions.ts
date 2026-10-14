@@ -33,9 +33,13 @@ export function mergeExtensions(
   const added: CanvasNode[] = [];
   for (const node of extNodes) {
     const id = to(node.id);
-    const parentId = node.parentId === null ? null : to(node.parentId);
+    let parentId = node.parentId === null ? null : to(node.parentId);
+    const hangs = (candidate: string) => ownIds.has(candidate) || extNodes.some((other) => to(other.id) === candidate);
+    // A graph run whose thread is not in view falls back to its project (BBP-191).
+    const fallback = node.meta?.fallbackParentId;
+    if (parentId !== null && !hangs(parentId) && typeof fallback === "string") parentId = fallback;
     // A crew of a project the overview does not show has nowhere to hang.
-    if (parentId !== null && !ownIds.has(parentId) && !extNodes.some((other) => to(other.id) === parentId)) continue;
+    if (parentId !== null && !hangs(parentId)) continue;
     const member = rename.has(node.id);
     added.push({
       ...node,
@@ -47,9 +51,16 @@ export function mergeExtensions(
   }
   const kept = new Set([...ownIds, ...added.map((node) => node.id)]);
   // A project tells its threads and its crews apart.
-  const crewsOf = new Map<string, number>();
-  for (const node of added) if (node.kind === "crew" && node.parentId !== null) crewsOf.set(node.parentId, (crewsOf.get(node.parentId) ?? 0) + 1);
-  const ownWithCounts = own.map((node) => (crewsOf.has(node.id) ? { ...node, meta: { ...node.meta, crews: crewsOf.get(node.id) } } : node));
+  const count = (kind: CanvasNode["kind"]) => {
+    const by = new Map<string, number>();
+    for (const node of added) if (node.kind === kind && node.parentId !== null) by.set(node.parentId, (by.get(node.parentId) ?? 0) + 1);
+    return by;
+  };
+  const crewsOf = count("crew");
+  const runsOf = count("graph-run");
+  const ownWithCounts = own.map((node) =>
+    crewsOf.has(node.id) || runsOf.has(node.id) ? { ...node, meta: { ...node.meta, crews: crewsOf.get(node.id) ?? 0, runs: runsOf.get(node.id) ?? 0 } } : node,
+  );
   const edges = [
     ...base.edges.filter((edge) => kept.has(edge.from) && kept.has(edge.to)),
     ...(layer.edges as unknown as CanvasEdge[]).map((edge) => ({ ...edge, from: to(edge.from), to: to(edge.to) })).filter((edge) => kept.has(edge.from) && kept.has(edge.to)),

@@ -77,3 +77,32 @@ describe("collectLayers", () => {
     expect(failing).toMatchObject({ nodes: [], sources: [] });
   });
 });
+
+describe("graph runs from Graph Studio (BBP-191)", () => {
+  const runs = {
+    nodes: [
+      { id: "graph-run:r1", kind: "graph-run", label: "review-flow", status: "running", parentId: "thread:t2", meta: { fallbackParentId: "project:p1" } },
+      { id: "graph-run:r2", kind: "graph-run", label: "old-flow", parentId: "thread:gone", meta: { fallbackParentId: "project:p1" } },
+    ],
+    edges: [],
+    expanded: [],
+    frames: [],
+  };
+  const merged = mergeExtensions(base, runs);
+  const byId = new Map(merged.nodes.map((node) => [node.id, node]));
+
+  it("hangs a run under the thread it was started from", () => {
+    expect(byId.get("graph-run:r1")?.parentId).toBe("thread:t2");
+  });
+
+  it("falls back to the project when that thread is not in view, and counts runs apart", () => {
+    expect(byId.get("graph-run:r2")?.parentId).toBe("project:p1");
+    expect(byId.get("project:p1")!.meta).toMatchObject({ runs: 1, crews: 0 });
+  });
+
+  it("passes the window start on to the extensions", async () => {
+    const call = vi.fn(async () => ({ nodes: [], edges: [], expanded: [], frames: [] }));
+    await collectLayers(["p1"], new Set(["graph-studio"]), call, 1000);
+    expect(call).toHaveBeenCalledWith("graph-studio", "canvasExtensionLayer", { projectId: "p1", sinceMs: 1000 });
+  });
+});

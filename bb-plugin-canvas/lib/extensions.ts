@@ -21,13 +21,18 @@ export type ExtensionLayer = z.infer<typeof layerSchema>;
 export const extensionContract = defineRpcContract({
   /** Every installed extension's layer for these projects, merged. */
   extensionLayers: {
-    input: z.object({ projectIds: z.array(z.string().min(1)) }),
+    /** `sinceMs`: the overview window's start, passed on to each extension. */
+    input: z.object({ projectIds: z.array(z.string().min(1)), sinceMs: z.number().optional() }),
     output: layerSchema.extend({ sources: z.array(z.string()) }),
   },
 });
 
 /** The plugins the canvas asks, by id, with the method they answer. */
-export const EXTENSIONS: readonly { pluginId: string; method: string }[] = [{ pluginId: "crew", method: "canvasLayer" }];
+export const EXTENSIONS: readonly { pluginId: string; method: string }[] = [
+  { pluginId: "crew", method: "canvasLayer" },
+  // BBP-191: graph runs, hung under the thread they were started from.
+  { pluginId: "graph-studio", method: "canvasExtensionLayer" },
+];
 
 export type CallRpc = (pluginId: string, method: string, input: unknown) => Promise<unknown>;
 
@@ -39,6 +44,7 @@ export async function collectLayers(
   projectIds: readonly string[],
   active: ReadonlySet<string>,
   call: CallRpc,
+  sinceMs?: number,
 ): Promise<ExtensionLayer & { sources: string[] }> {
   const merged: ExtensionLayer & { sources: string[] } = { ...EMPTY, nodes: [], edges: [], expanded: [], frames: [], sources: [] };
   for (const { pluginId, method } of EXTENSIONS) {
@@ -46,7 +52,7 @@ export async function collectLayers(
     const layers = await Promise.all(
       projectIds.map(async (projectId) => {
         try {
-          return layerSchema.parse(await call(pluginId, method, { projectId }));
+          return layerSchema.parse(await call(pluginId, method, sinceMs === undefined ? { projectId } : { projectId, sinceMs }));
         } catch {
           return null;
         }

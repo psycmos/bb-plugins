@@ -18,7 +18,7 @@ const ACTIVE = new Set(["running", "starting", "degraded", "needs-configuration"
 export default function canvas(bb: BbPluginApi) {
   // BBP-190: crews (and later graph runs) from the plugins that know them.
   bb.rpc.register(extensionContract, {
-    extensionLayers: async ({ projectIds }) => {
+    extensionLayers: async ({ projectIds, sinceMs }) => {
       let active = new Set<string>();
       try {
         const { plugins } = await bb.sdk.plugins.list();
@@ -27,7 +27,7 @@ export default function canvas(bb: BbPluginApi) {
         // Unsure which plugins run: ask them all, a missing one just fails its call.
         active = new Set(["crew"]);
       }
-      return collectLayers(projectIds, active, (pluginId, method, input) => bb.sdk.plugins.callRpc({ pluginId, method, input: input as Record<string, string>, outputSchema: anyOutput }));
+      return collectLayers(projectIds, active, (pluginId, method, input) => bb.sdk.plugins.callRpc({ pluginId, method, input: input as Record<string, string>, outputSchema: anyOutput }), sinceMs);
     },
   });
   bb.settings.define({

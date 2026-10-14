@@ -51,7 +51,10 @@ import { SqliteCheckpointer } from "./lib/checkpointer";
 import { MIGRATIONS, createStore, type RunRow, type RunStatus } from "./lib/store";
 import { RENAMED_TEMPLATES, TEMPLATES, searchGraphs } from "./lib/templates";
 import { whileWorkspaceBusy } from "./lib/workspace";
-import { canvasPageLayer } from "./lib/canvas-layer";
+import { canvasExtensionLayer, canvasPageLayer } from "./lib/canvas-layer";
+
+/** Runs the canvas keeps whatever their age (BBP-191). */
+const ACTIVE_RUN = new Set(["running", "stopping", "waiting-human"]);
 import { ACTIVITY_EVENT_TYPES, describeActivity } from "./lib/activity";
 import {
   answerRefusal,
@@ -220,6 +223,12 @@ export const rpcContract = defineRpcContract({
   canvasLayer: {
     input: z.object({ projectId: z.string().min(1) }),
     output: canvasLayerSchema.extend({ crew: z.boolean() }),
+  },
+  /** BBP-191: only this plugin's runs, for the standalone Canvas plugin. */
+  canvasExtensionLayer: {
+    /** `sinceMs`: only runs started since then, plus every run still going. */
+    input: z.object({ projectId: z.string().min(1), sinceMs: z.number().optional() }),
+    output: canvasLayerSchema.extend({ frames: z.array(z.never()) }),
   },
   listRuns: {
     input: z.object({ threadId: z.string().nullable().default(null) }),
@@ -1790,6 +1799,13 @@ export default function graphStudio(bb: BbPluginApi) {
       return { run: toDto(runId)! };
     },
     getRun: ({ id }) => ({ run: toDto(id) }),
+    canvasExtensionLayer: ({ projectId, sinceMs }) => {
+      const runs = store.listRuns().flatMap((row) => {
+        const dto = toDto(row.id);
+        return dto && dto.projectId === projectId && (sinceMs === undefined || dto.createdAt >= sinceMs || ACTIVE_RUN.has(dto.status)) ? [dto] : [];
+      });
+      return canvasExtensionLayer(projectId, runs);
+    },
     canvasLayer: async ({ projectId }) => {
       let projectLabel = projectId;
       try {

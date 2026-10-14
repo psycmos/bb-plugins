@@ -310,7 +310,12 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     if (projectKey === "") return;
     let cancelled = false;
     Promise.resolve()
-      .then(() => rpcRef.current.call("extensionLayers", { projectIds: projectKey.split(",") }))
+      .then(() =>
+        rpcRef.current.call("extensionLayers", {
+          projectIds: projectKey.split(","),
+          ...(windowMs !== null ? { sinceMs: Date.now() - windowMs } : {}),
+        }),
+      )
       .then(
         (answer) => {
           if (!cancelled) setExtension(answer);
@@ -322,7 +327,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [projectKey, extensionTick, listVersion]);
+  }, [projectKey, extensionTick, listVersion, windowMs]);
   const layer = useMemo(() => {
     if (threadTree === null) return null;
     const facts = new Map(state !== null && "threads" in state ? state.threads.map((thread) => [thread.id, thread]) : []);

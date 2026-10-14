@@ -163,3 +163,21 @@ export async function canvasPageLayer(args: {
   const page = withRoots(args.projectId, args.projectLabel, mergeLayers(crew, graphCanvasLayer(args.projectId, args.runs, memberByThread)));
   return { ...page, crew: available };
 }
+
+/**
+ * BBP-191: this plugin's layer for the standalone Canvas plugin. Only the
+ * runs — the Canvas asks crew itself. A run hangs under the thread it was
+ * started from (the Canvas's `thread:<id>` node, which is also how it draws
+ * a crew member); `meta.fallbackParentId` names the project for a run whose
+ * thread the Canvas does not show.
+ */
+export function canvasExtensionLayer(projectId: string, runs: CanvasRun[]): CanvasLayer & { frames: [] } {
+  const byThread = new Map(runs.flatMap((run) => (run.threadId !== null ? [[run.threadId, `thread:${run.threadId}`] as const] : [])));
+  const layer = graphCanvasLayer(projectId, runs, byThread);
+  const project = projectNodeId(projectId);
+  return {
+    ...layer,
+    nodes: layer.nodes.map((node) => (node.kind === "graph-run" && node.parentId !== project ? { ...node, meta: { ...node.meta, fallbackParentId: project } } : node)),
+    frames: [],
+  };
+}
