@@ -37,10 +37,10 @@ describe("tiers", () => {
     expect(TIER_OF["system-event"]).toBe("row");
   });
 
-  it("gives a group a 28px header height, a card 220x52, a row 200x26", () => {
+  it("gives a group a 28px header height, a card 220x52, a row 260x26 (a log line, BBP-298)", () => {
     expect(TIER_SIZE.group.height).toBe(28);
     expect(TIER_SIZE.card).toEqual({ width: 220, height: 52 });
-    expect(TIER_SIZE.row).toEqual({ width: 200, height: 26 });
+    expect(TIER_SIZE.row).toEqual({ width: 260, height: 26 });
   });
 
   it("sizeOf looks a kind's size up through its tier", () => {

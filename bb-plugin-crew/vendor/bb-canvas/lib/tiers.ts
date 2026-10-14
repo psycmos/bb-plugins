@@ -29,7 +29,8 @@ export type TierSize = { width: number; height: number };
 export const TIER_SIZE: Record<Tier, TierSize> = {
   group: { width: 220, height: 28 },
   card: { width: 220, height: 52 },
-  row: { width: 200, height: 26 },
+  // Wide enough for a command line read as a log (BBP-298).
+  row: { width: 260, height: 26 },
 };
 
 export type TierTypography = {

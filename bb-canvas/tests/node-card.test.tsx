@@ -49,7 +49,7 @@ describe("NodeCard status border (BBP-146)", () => {
 
   it("draws a dashed amber border when waiting", () => {
     render(<NodeCard label="x" status="waiting" />);
-    expect(screen.getByRole("button").style.border).toContain("dashed");
+    expect(screen.getByRole("button").getAttribute("style")).toContain("dashed");
   });
 
   it("draws a solid amber border when escalated", () => {
@@ -210,5 +210,19 @@ describe("NodeCard root and project as cards (BBP-298)", () => {
     expect(button.style.border).toContain("var(--primary)");
     expect(button.className).toContain("bb-canvas-pulse");
     expect(screen.getByText("3 threads")).toBeTruthy();
+  });
+});
+
+describe("NodeCard as a log line (BBP-298)", () => {
+  it("shows the type tag, the command, the result and a duration bar", () => {
+    render(<NodeCard label="npx vitest run" kind="tool-call" status="failed" log={{ tag: "shell", color: "#65a30d", detail: "exit 1", bar: 0.5 }} />);
+    const row = screen.getByRole("button", { name: "npx vitest run — shell · exit 1" });
+    expect(row.getAttribute("data-bb-log-row")).toBe("shell");
+    expect(row.querySelector("[data-bb-duration-bar]")).toBeTruthy();
+  });
+
+  it("outlines a running line dashed blue", () => {
+    render(<NodeCard label="bb plugin build" kind="tool-call" status="running" log={{ tag: "shell", color: "#65a30d", detail: "12s" }} />);
+    expect(screen.getByRole("button").getAttribute("style")).toContain("dashed");
   });
 });

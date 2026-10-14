@@ -56,7 +56,11 @@ function limitTurnNodes<R extends { nodes: CanvasNode[]; edges?: CanvasEdge[] }>
 ): R {
   const kept = new Set(limitTurns(result.nodes.filter((node) => node.kind === "turn"), limit).map((node) => node.id));
   for (const id of pinned) kept.add(id);
-  const nodes = result.nodes.filter((node) => node.kind !== "turn" || kept.has(node.id));
+  // A dropped turn takes its steps with it — they would lay out as loose
+  // roots otherwise (BBP-298). Children follow their parent in the list.
+  const dropped = new Set(result.nodes.filter((node) => node.kind === "turn" && !kept.has(node.id)).map((node) => node.id));
+  for (const node of result.nodes) if (node.parentId !== null && dropped.has(node.parentId)) dropped.add(node.id);
+  const nodes = result.nodes.filter((node) => !dropped.has(node.id));
   const ids = new Set(nodes.map((node) => node.id));
   const edges = result.edges?.filter((edge) => ids.has(edge.from) && ids.has(edge.to));
   return { ...result, nodes, ...(edges ? { edges } : {}) };
@@ -384,6 +388,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
           halo
           colorBy={colorBy}
           breadcrumbInSidebar
+          stepsAsLog
           autoExpand={activeOnly ? openWhileActive : undefined}
           controlsPosition="bottom-right"
           overlay={(shown) => <Legend nodes={shown} colorBy={colorBy} />}

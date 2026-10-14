@@ -604,3 +604,15 @@ describe("the Canvas sidebar layout (BBP-298)", () => {
     expect(screen.getByRole("tab", { name: "Tool calls" }).getAttribute("aria-selected")).toBe("true");
   });
 });
+
+describe("the Canvas turn limit takes a dropped turn's steps along (BBP-298)", () => {
+  it("shows no loose steps of a turn the limit drops", async () => {
+    const turn = (id: string) => ({ ...turnRow(id), summaryCount: 0 });
+    const step = { id: "w-old", kind: "work", workKind: "command", command: "echo old", turnId: "live-old", status: "completed" };
+    const { sdk } = liveSdk(() => [turn("turn-1"), step, turn("turn-2")]);
+    canvasPanel(sdk, { overviewTurns: 1 });
+    await open(/^Plain chat — /);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /^Turn.* — / })).toHaveLength(1));
+    expect(screen.queryByRole("button", { name: /echo old/ })).toBeNull();
+  });
+});

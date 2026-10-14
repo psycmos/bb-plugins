@@ -38,6 +38,10 @@ export type NodeCardProps = {
   /** The type colour (BBP-298), carried by the icon alone: a tinted square
    *  behind it. The card's border stays neutral. Absent: the neutral card. */
   accent?: string;
+  /** A step drawn as a log line instead of a card (BBP-298): a coloured type
+   *  tag, the command in monospace, its result on the right and a bar under
+   *  it as long as the step took, relative to its siblings. */
+  log?: { tag: string; color: string; detail?: string; bar?: number };
 };
 
 const AMBER = "var(--warning)";
@@ -123,8 +127,10 @@ export function NodeCard({
   expander,
   loadFailed = false,
   accent,
+  log,
 }: NodeCardProps) {
   ensurePulseStyles();
+  if (log) return <LogRow label={label} status={status} selected={selected} halo={halo} onClick={onClick} dimmed={dimmed} expander={expander} log={log} />;
   const tier: Tier = kind !== undefined ? TIER_OF[kind] : "card";
   const typo = TIER_TYPOGRAPHY[tier];
   const { border, pulse, background, radius } = visualFor(status, tier, loadFailed);
@@ -401,5 +407,130 @@ function StatusGlyph({ status }: { status: CanvasStatus }) {
         <path key={d} d={d} />
       ))}
     </svg>
+  );
+}
+
+
+/** A step as one line of a log (BBP-298): no card around it, a hairline
+ *  underneath, the state in the text colour and a dashed blue outline while
+ *  it runs. */
+function LogRow({
+  label,
+  status,
+  selected,
+  halo,
+  onClick,
+  dimmed,
+  expander,
+  log,
+}: Pick<NodeCardProps, "label" | "status" | "selected" | "halo" | "onClick" | "dimmed" | "expander"> & { log: NonNullable<NodeCardProps["log"]> }) {
+  const failed = status === "failed";
+  const running = status === "running";
+  const ink = failed ? "var(--destructive)" : "var(--foreground)";
+  const row = (
+    <button
+      type="button"
+      aria-label={log.detail ? `${label} — ${log.tag} · ${log.detail}` : `${label} — ${log.tag}`}
+      aria-pressed={selected}
+      data-halo={halo ? "true" : undefined}
+      data-bb-log-row={log.tag}
+      aria-disabled={dimmed}
+      onClick={dimmed ? undefined : onClick}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        width: "100%",
+        height: "100%",
+        padding: "0 6px",
+        boxSizing: "border-box",
+        border: running ? "1.5px dashed var(--primary)" : "1px solid transparent",
+        borderBottom: running ? "1.5px dashed var(--primary)" : "1px solid var(--border)",
+        borderRadius: running ? 5 : 0,
+        outline: selected ? "2px solid var(--ring)" : "none",
+        outlineOffset: 1,
+        ...(halo ? { boxShadow: "0 0 0 6px color-mix(in srgb, var(--ring) 35%, transparent)" } : {}),
+        background: "transparent",
+        color: ink,
+        textAlign: "left",
+        cursor: dimmed ? "default" : "pointer",
+        opacity: dimmed ? 0.35 : 1,
+        pointerEvents: dimmed ? "none" : "auto",
+      }}
+    >
+      <span style={{ width: 40, flexShrink: 0, fontSize: 9, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: failed ? "var(--destructive)" : log.color }}>
+        {log.tag}
+      </span>
+      <span
+        title={label}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontSize: 11,
+          fontWeight: running ? 600 : 400,
+        }}
+      >
+        {label}
+      </span>
+      {log.detail ? (
+        <span style={{ flexShrink: 0, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 10, color: failed ? "var(--destructive)" : running ? "var(--primary)" : "var(--muted-foreground)" }}>
+          {running ? "● " : ""}
+          {log.detail}
+        </span>
+      ) : null}
+      {log.bar !== undefined ? (
+        <span
+          aria-hidden
+          data-bb-duration-bar
+          style={{
+            position: "absolute",
+            left: 54,
+            bottom: 3,
+            height: 2,
+            width: `calc((100% - 64px) * ${Math.max(0.02, Math.min(1, log.bar))})`,
+            borderRadius: 2,
+            background: failed ? "var(--destructive)" : running ? "var(--primary)" : log.color,
+            opacity: 0.55,
+          }}
+        />
+      ) : null}
+    </button>
+  );
+  if (!expander) return row;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      {row}
+      <button
+        type="button"
+        aria-label={`${expander.expanded ? "Collapse" : "Expand"} ${label}`}
+        aria-expanded={expander.expanded}
+        onClick={(event) => {
+          event.stopPropagation();
+          expander.onToggle();
+        }}
+        style={{
+          position: "absolute",
+          right: -10,
+          top: "50%",
+          transform: "translateY(-50%)",
+          width: 18,
+          height: 18,
+          borderRadius: 9,
+          border: "1px solid var(--border)",
+          background: "var(--card)",
+          color: "var(--muted-foreground)",
+          fontSize: 10,
+          lineHeight: 1,
+          cursor: "pointer",
+        }}
+      >
+        {expander.expanded ? "‹" : "›"}
+      </button>
+    </div>
   );
 }

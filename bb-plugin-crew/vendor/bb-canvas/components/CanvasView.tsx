@@ -134,6 +134,8 @@ export type CanvasViewProps = {
    *  running thread and turn down to its tool calls (BBP-298). Each node is
    *  opened once; one the user closes stays closed. Not persisted. */
   autoExpand?: (node: CanvasNode) => boolean;
+  /** Tool calls and subagents as log lines with a duration bar (BBP-298). */
+  stepsAsLog?: boolean;
   /** The breadcrumb sits atop the detail sidebar instead of beside the
    *  toolbar, so the toolbar never moves when a card is picked (BBP-298). */
   breadcrumbInSidebar?: boolean;
@@ -180,6 +182,7 @@ export function CanvasView({
   colorBy,
   autoExpand,
   breadcrumbInSidebar = false,
+  stepsAsLog,
   controlsPosition,
   overlay,
   cornerAction,
@@ -260,8 +263,23 @@ export function CanvasView({
           rest.push([parentId, result]);
           continue;
         }
-        kept.push(result);
-        for (const child of result.nodes) present.add(child.id);
+        // Only the nodes that hang off something present: a node whose own
+        // parent is missing would lay out as a loose root (BBP-298).
+        const nodes: CanvasNode[] = [];
+        let pendingNodes = [...result.nodes];
+        for (let more = true; more; ) {
+          more = false;
+          const rest: CanvasNode[] = [];
+          for (const node of pendingNodes) {
+            if (node.parentId !== null && present.has(node.parentId)) {
+              nodes.push(node);
+              present.add(node.id);
+              more = true;
+            } else rest.push(node);
+          }
+          pendingNodes = rest;
+        }
+        kept.push(nodes.length === result.nodes.length ? result : { ...result, nodes });
         grew = true;
       }
       pending = rest;
@@ -734,6 +752,7 @@ export function CanvasView({
             onSelect={handleSelect}
             onBackgroundClick={() => select(null)}
             colorBy={colorBy}
+            stepsAsLog={stepsAsLog}
             controlsPosition={controlsPosition}
             dimmedIds={dimmedIds}
             failedLoads={failedLoads}

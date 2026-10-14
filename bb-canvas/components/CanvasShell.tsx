@@ -35,7 +35,7 @@ import { describeNode, KindIcon } from "./KindIcon";
 import { StatusEdge, type StatusEdgeData } from "./StatusEdge";
 import type { CanvasEdge, CanvasFrame, CanvasNode } from "../lib/types";
 import { MOTION_CSS, MOTION_MS, planMotion } from "../lib/tree-motion";
-import { accentOf, type ColorMode as CardColorMode } from "../lib/kind-colors";
+import { accentOf, durationMs, TYPE_COLORS, TYPE_TAGS, typeKey, type ColorMode as CardColorMode } from "../lib/kind-colors";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -243,6 +243,8 @@ export type CanvasShellProps = {
   /** Colour cards by type or by state, as agent-graph (BBP-298); absent:
    *  neutral cards. */
   colorBy?: CardColorMode;
+  /** Tool calls and subagents as log lines with a duration bar (BBP-298). */
+  stepsAsLog?: boolean;
   /** Where the zoom controls sit; agent-graph keeps them bottom right. */
   controlsPosition?: "bottom-left" | "bottom-right";
   /** Node and frame ids outside the frame being edited (BBP-166) — faded,
@@ -284,6 +286,25 @@ export function toFlowEdges(placedEdges: readonly PlacedEdge[]): Edge[] {
   }));
 }
 
+const LOG_KINDS = new Set<CanvasNode["kind"]>(["tool-call", "subagent"]);
+
+/** A step's log line: tag, colour, result and bar length (0–1). */
+function logOf(node: CanvasNode, longestMs: number): NonNullable<NodeCardProps["log"]> {
+  const key = typeKey(node);
+  const meta = node.meta ?? {};
+  const exit = typeof meta.exitCode === "number" && meta.exitCode !== 0 ? `exit ${meta.exitCode}` : undefined;
+  const diff = typeof meta.diffStats === "string" && meta.diffStats !== "" ? meta.diffStats : undefined;
+  const took = typeof meta.duration === "string" ? meta.duration : undefined;
+  const steps = node.kind === "subagent" && typeof meta.summaryCount === "number" ? `${meta.summaryCount} steps` : undefined;
+  const ms = durationMs(meta.duration);
+  return {
+    tag: TYPE_TAGS[key],
+    color: TYPE_COLORS[key],
+    ...(exit ?? diff ?? took ?? steps ? { detail: exit ?? diff ?? took ?? steps } : {}),
+    ...(ms !== null && longestMs > 0 ? { bar: ms / longestMs } : {}),
+  };
+}
+
 function toFlow(
   layout: TreeLayout,
   nodes: readonly CanvasNode[],
@@ -297,6 +318,7 @@ function toFlow(
   failedLoads: ReadonlySet<string>,
   haloId: string | null = null,
   colorBy?: CardColorMode,
+  stepsAsLog = false,
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const byFrameId = new Map(frames.map((frame) => [frame.id, frame]));
@@ -304,6 +326,13 @@ function toFlow(
   for (const node of nodes) {
     if (node.parentId !== null) childCount.set(node.parentId, (childCount.get(node.parentId) ?? 0) + 1);
   }
+  // The longest step under each parent sets the scale of its duration bars.
+  const longest = new Map<string, number>();
+  if (stepsAsLog)
+    for (const node of nodes) {
+      const ms = LOG_KINDS.has(node.kind) ? durationMs(node.meta?.duration) : null;
+      if (ms !== null && node.parentId !== null) longest.set(node.parentId, Math.max(longest.get(node.parentId) ?? 0, ms));
+    }
   const flowNodes: Node[] = layout.positions.map((placed) => {
     const node = byId.get(placed.id)!;
     const data: NodeCardProps = {
@@ -318,6 +347,7 @@ function toFlow(
       dimmed: dimmedIds.has(node.id),
       loadFailed: failedLoads.has(node.id),
       ...(colorBy ? { accent: accentOf(node, colorBy) } : {}),
+      ...(stepsAsLog && LOG_KINDS.has(node.kind) ? { log: logOf(node, longest.get(node.parentId ?? "") ?? 0) } : {}),
       expander: expandable.has(node.id)
         ? {
             expanded: expanded.has(node.id),
@@ -387,6 +417,7 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
     onSelect,
     onBackgroundClick,
     colorBy,
+    stepsAsLog = false,
     controlsPosition = "bottom-left",
     dimmedIds = EMPTY_DIMMED,
     failedLoads = EMPTY_DIMMED,
@@ -437,8 +468,8 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
     [onToggle],
   );
   const { flowNodes, flowEdges } = useMemo(
-    () => toFlow(layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy),
-    [layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy],
+    () => toFlow(layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy, stepsAsLog),
+    [layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy, stepsAsLog],
   );
 
   useEffect(() => {

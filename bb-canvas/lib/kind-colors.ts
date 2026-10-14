@@ -80,3 +80,27 @@ export function statusKey(status: CanvasStatus | undefined): keyof typeof STATUS
 export function accentOf(node: Pick<CanvasNode, "kind" | "meta" | "status">, mode: ColorMode): string {
   return mode === "type" ? TYPE_COLORS[typeKey(node)] : STATUS_COLORS[statusKey(node.status)];
 }
+
+/** The short tag a log row carries in front of its command (BBP-298). */
+export const TYPE_TAGS: Record<TypeColorKey, string> = {
+  project: "proj",
+  thread: "thread",
+  turn: "turn",
+  subagent: "agent",
+  shell: "shell",
+  edit: "edit",
+  read: "read",
+  other: "tool",
+};
+
+/** "400ms", "1.2s", "2m 10s", "85.6s" → milliseconds; anything else → null. */
+export function durationMs(text: unknown): number | null {
+  if (typeof text !== "string") return null;
+  let total = 0;
+  let matched = false;
+  for (const [, value, unit] of text.matchAll(/(\d+(?:\.\d+)?)\s*(ms|s|m|h)\b/g)) {
+    matched = true;
+    total += Number(value) * ({ ms: 1, s: 1000, m: 60_000, h: 3_600_000 } as const)[unit as "ms" | "s" | "m" | "h"];
+  }
+  return matched ? total : null;
+}

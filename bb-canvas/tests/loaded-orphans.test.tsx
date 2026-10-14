@@ -40,3 +40,18 @@ describe("loaded children follow their parent out of the tree", () => {
     expect(await screen.findByRole("button", { name: /^Turn of Quiet/ })).toBeTruthy();
   });
 });
+
+describe("loaded nodes without a present parent are left out", () => {
+  it("drops a loaded step whose turn is not in the result", async () => {
+    const loadWithOrphan = async (node: CanvasNode) => ({
+      nodes: [
+        { id: "turn:kept", kind: "turn" as const, label: "Kept turn", parentId: node.id },
+        { id: "step:orphan", kind: "tool-call" as const, label: "Orphan step", parentId: "turn:dropped" },
+      ],
+    });
+    render(<CanvasView nodes={[root, quiet]} initialExpanded={new Set(["agents"])} loadChildren={loadWithOrphan} canLoadChildren={(n) => n.kind === "thread"} />);
+    fireEvent.click(screen.getByRole("button", { name: "Expand Quiet" }));
+    expect(await screen.findByRole("button", { name: /^Kept turn/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Orphan step/ })).toBeNull();
+  });
+});
