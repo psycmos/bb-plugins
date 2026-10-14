@@ -93,6 +93,8 @@ function visualFor(status: CanvasStatus | undefined, tier: Tier, loadFailed: boo
   if (tier === "row") {
     if (failed) return { border: `1.5px solid var(--destructive)`, pulse: false, background: tint("var(--destructive)"), radius };
     if (status === "waiting") return { border: `2px dashed ${AMBER}`, pulse: false, background: tint(AMBER), radius };
+    // A row at work gets the blue border too (BBP-298: every active card shows it).
+    if (status === "running") return { border: `1.5px dashed var(--primary)`, pulse: false, background: "var(--muted)", radius };
     return { border: "none", pulse: false, background: "var(--muted)", radius };
   }
   if (failed) return { border: `1.5px solid var(--destructive)`, pulse: false, background: "var(--card)", radius };
@@ -100,8 +102,10 @@ function visualFor(status: CanvasStatus | undefined, tier: Tier, loadFailed: boo
   // state that needs the human — it must not read weaker than "running".
   if (status === "waiting") return { border: `2px dashed ${AMBER}`, pulse: false, background: "var(--card)", radius };
   if (status === "escalated") return { border: `1.5px solid ${AMBER}`, pulse: false, background: "var(--card)", radius };
+  // Running: a dashed blue border, like the running path; a selected card
+  // keeps its solid ring, so "at work" and "picked" never look alike (BBP-298).
   if (status === "running") {
-    return { border: `1.5px solid var(--primary)`, pulse: true, background: "var(--card)", radius };
+    return { border: `1.5px dashed var(--primary)`, pulse: true, background: "var(--card)", radius };
   }
   return { border: `1px solid var(--border)`, pulse: false, background: "var(--card)", radius };
 }

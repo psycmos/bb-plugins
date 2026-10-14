@@ -823,7 +823,7 @@ describe("enrichTurnNodes (BBP-206 R2b)", () => {
 describe("BBP-206 R2b acceptance: real timeline fixtures", () => {
   it("workCommandBash: Bash command card, full sidebar, exit code 0 not failed", () => {
     const row = fixtures.workCommandBash as TimelineRowLike;
-    const { nodes } = timelineToCanvas(row.id /* unused */, { rows: [row] });
+    const { nodes } = timelineToCanvas(row.id /* unused */, { rows: [{ ...row, turnId: undefined }] });
     const node = nodes[0]!;
     expect(node.label).toBe("bb tasks show BBP-112");
     expect(node.status).not.toBe("failed");
@@ -834,14 +834,14 @@ describe("BBP-206 R2b acceptance: real timeline fixtures", () => {
 
   it("workCommandFailed: non-zero exit code fails the node", () => {
     const row = fixtures.workCommandFailed as TimelineRowLike;
-    const { nodes } = timelineToCanvas("t1", { rows: [row] });
+    const { nodes } = timelineToCanvas("t1", { rows: [{ ...row, turnId: undefined }] });
     expect(nodes[0]!.status).toBe("failed");
     expect(nodes[0]!.meta).toMatchObject({ exitCode: 1 });
   });
 
   it("workToolMcpCall: MCP tool call card and args, no exit code field", () => {
     const row = fixtures.workToolMcpCall as TimelineRowLike;
-    const { nodes } = timelineToCanvas("t1", { rows: [row] });
+    const { nodes } = timelineToCanvas("t1", { rows: [{ ...row, turnId: undefined }] });
     expect(nodes[0]!.label).toBe("crew_inbox");
     expect(nodes[0]!.meta).not.toHaveProperty("exitCode");
     expect(nodes[0]!.meta!.toolArgs).toBe(JSON.stringify({ limit: 5 }, null, 2));
@@ -849,7 +849,7 @@ describe("BBP-206 R2b acceptance: real timeline fixtures", () => {
 
   it("workFileChangeEdit: file name on the card, path/changeKind/diffStats in meta, no output/exitCode", () => {
     const row = fixtures.workFileChangeEdit as TimelineRowLike;
-    const { nodes } = timelineToCanvas("t1", { rows: [row] });
+    const { nodes } = timelineToCanvas("t1", { rows: [{ ...row, turnId: undefined }] });
     expect(nodes[0]!.label).toBe("search.ts");
     expect(nodes[0]!.meta).toMatchObject({ changeKind: "update", diffStats: "+14 -0" });
     expect(nodes[0]!.meta).not.toHaveProperty("output");
@@ -858,7 +858,7 @@ describe("BBP-206 R2b acceptance: real timeline fixtures", () => {
 
   it("workDelegationSubagent: unchanged Agent: <description> label, childRows nested", () => {
     const row = fixtures.workDelegationSubagent as TimelineRowLike;
-    const { nodes } = timelineToCanvas("t1", { rows: [row] });
+    const { nodes } = timelineToCanvas("t1", { rows: [{ ...row, turnId: undefined }] });
     const subagent = nodes.find((node) => node.id === `row:${row.id}`)!;
     expect(subagent).toMatchObject({ kind: "subagent", label: "Agent: Find where sidenav search filters by tag" });
     expect(nodes.some((node) => node.parentId === subagent.id)).toBe(true);
@@ -866,7 +866,7 @@ describe("BBP-206 R2b acceptance: real timeline fixtures", () => {
 
   it("workFileRead: labels by the file name, curates the path, no toolArgs/command/exitCode field that isn't in the schema", () => {
     const row = fixtures.workFileRead as TimelineRowLike;
-    const { nodes } = timelineToCanvas("t1", { rows: [row] });
+    const { nodes } = timelineToCanvas("t1", { rows: [{ ...row, turnId: undefined }] });
     expect(nodes).toHaveLength(1);
     expect(nodes[0]!.label).toBe("AGENTS.md");
     expect(nodes[0]!.meta).toMatchObject({ path: (fixtures.workFileRead as Record<string, string>).path });
@@ -875,14 +875,14 @@ describe("BBP-206 R2b acceptance: real timeline fixtures", () => {
 
   it("systemOperationContextClear: own node, hyphenated operationKind recognized", () => {
     const row = fixtures.systemOperationContextClear as TimelineRowLike;
-    const { nodes } = timelineToCanvas("t1", { rows: [row] });
+    const { nodes } = timelineToCanvas("t1", { rows: [{ ...row, turnId: undefined }] });
     expect(nodes).toHaveLength(1);
     expect(nodes[0]).toMatchObject({ kind: "system-event", label: "Context cleared" });
   });
 
   it("systemOperationParentChange: old/new parent from the nested parentChange's titles", () => {
     const row = fixtures.systemOperationParentChange as TimelineRowLike;
-    const { nodes } = timelineToCanvas("t1", { rows: [row] });
+    const { nodes } = timelineToCanvas("t1", { rows: [{ ...row, turnId: undefined }] });
     expect(nodes[0]!.meta).toMatchObject({ oldParent: "orch-lead@factory-1", newParent: "orch-lead@factory-2" });
   });
 
@@ -1172,7 +1172,8 @@ describe("turnDetailsToCanvas with a steps limit (BBP-286)", () => {
 // BBP-298: a running turn's steps come loose under the thread; the newest
 // ten stay, older ones go behind "+N earlier" like a finished turn's.
 describe("timelineToCanvas step limit", () => {
-  const step = (n: number) => ({ ...(fixtures.workCommandBash as TimelineRowLike), id: `w${n}` }) as TimelineRowLike;
+  // No turn id: these are loose steps; a turn id would group them under a live turn card.
+  const step = (n: number) => ({ ...(fixtures.workCommandBash as TimelineRowLike), id: `w${n}`, turnId: undefined }) as TimelineRowLike;
 
   it("keeps the newest ten loose steps on the thread and folds the rest", () => {
     const { nodes } = timelineToCanvas("t1", { rows: Array.from({ length: 12 }, (_, n) => step(n)) }, 10);
@@ -1191,7 +1192,7 @@ describe("timelineToCanvas step limit", () => {
 
 // BBP-298: the running path reaches down to the step still at work.
 describe("a step still at work is running", () => {
-  const base = fixtures.workCommandBash as TimelineRowLike;
+  const base = { ...(fixtures.workCommandBash as TimelineRowLike), turnId: undefined };
   it("marks a work row with a running status, or started and not ended", () => {
     const [byStatus] = timelineToCanvas("t1", { rows: [{ ...base, id: "a", status: "running", completedAt: undefined }] }).nodes;
     expect(byStatus!.status).toBe("running");
@@ -1202,5 +1203,19 @@ describe("a step still at work is running", () => {
   it("leaves a completed step alone", () => {
     const [done] = timelineToCanvas("t1", { rows: [{ ...base, id: "c", status: "completed", startedAt: 1, completedAt: undefined }] }).nodes;
     expect(done!.status).toBeUndefined();
+  });
+});
+
+
+// BBP-298: a running turn's steps come without a turn row; grouped by their
+// turn id under a turn card of their own, as agent-graph shows them.
+describe("live turn grouping", () => {
+  const work = (id: string) => ({ ...(fixtures.workCommandBash as TimelineRowLike), id, turnId: "live-1" });
+  it("puts the steps of a turn without a turn row under a running turn card titled by its request", () => {
+    const request = { id: "u1", kind: "conversation", role: "user", text: "Fix the canvas", turnId: "live-1" } as TimelineRowLike;
+    const { nodes } = timelineToCanvas("t1", { rows: [request, work("a"), work("b")] });
+    const turn = nodes.find((node) => node.kind === "turn")!;
+    expect(turn).toMatchObject({ parentId: "thread:t1", status: "running", label: "Fix the canvas" });
+    expect(nodes.filter((node) => node.parentId === turn.id).map((node) => node.id)).toEqual(["row:a", "row:b"]);
   });
 });

@@ -724,8 +724,42 @@ export function timelineToCanvas(
   const answerText = answersByTurn(response.rows);
   const nodes: CanvasNode[] = [];
   let pending: TimelineRowLike[] = [];
+  // A running turn has no turn row yet, only its steps — each carrying the
+  // turn's id. Those are grouped under a turn card of their own, as agent-graph
+  // shows them, instead of hanging loose off the thread (BBP-298).
+  const turnKeys = new Set(response.rows.filter((row) => row.kind === "turn").map((row) => row.turnId ?? row.id));
+  const liveTurns = new Map<string, CanvasNode>();
   const flush = () => {
-    nodes.push(...mapRows(pending, parent, threadId));
+    const loose: TimelineRowLike[] = [];
+    const grouped = new Map<string, TimelineRowLike[]>();
+    for (const row of pending) {
+      const key = row.turnId;
+      if (row.kind !== "system" && typeof key === "string" && !turnKeys.has(key)) {
+        // The request itself titles the turn card; it is not a step of it.
+        if (row.kind === "conversation" && row.role === "user") continue;
+        grouped.set(key, [...(grouped.get(key) ?? []), row]);
+      }
+      else loose.push(row);
+    }
+    nodes.push(...mapRows(loose, parent, threadId));
+    for (const [key, rows] of grouped) {
+      let turn = liveTurns.get(key);
+      if (!turn) {
+        const request = requestRows.get(key) ?? response.rows.find((row) => row.kind === "conversation" && row.role === "user" && row.turnId === key && row.text);
+        const title = request?.text ? turnTitle(request.text, request.systemMessageKind, request.systemMessageSubject) : undefined;
+        turn = {
+          id: `row:live-turn:${key}`,
+          kind: "turn",
+          label: title ? truncate(title, 48) : "Turn in progress",
+          status: "running",
+          parentId: parent,
+          meta: { threadId, turnId: key, live: true, ...(title ? { firstLine: title, request: cleanRequestText(request!.text!) } : {}) },
+        };
+        liveTurns.set(key, turn);
+        nodes.push(turn);
+      }
+      nodes.push(...mapRows(rows, turn.id, threadId));
+    }
     pending = [];
   };
   response.rows.forEach((row, index) => {
