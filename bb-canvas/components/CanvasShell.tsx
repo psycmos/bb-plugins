@@ -170,7 +170,8 @@ function CanvasFrameView({
 const NODE_TYPES = { canvasNode: CanvasNodeView, canvasFrame: CanvasFrameView };
 const EDGE_TYPES = { statusEdge: StatusEdge };
 const EMPTY_DIMMED: ReadonlySet<string> = new Set();
-const FIT_VIEW_OPTIONS = { padding: 0.08 };
+// Never past 100 %: a fit of three cards zoomed them to 180 % (BBP-298).
+const FIT_VIEW_OPTIONS = { padding: 0.08, maxZoom: 1 };
 // React Flow's own floor (0.5) cuts off a real tree (two ten-member crews no
 // longer fit); its ceiling (2) is left as is.
 const MIN_ZOOM = 0.2;
@@ -391,10 +392,33 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
     () => layoutTree(nodes, expanded, edges, frames, selectedId),
     [nodes, expanded, edges, frames, selectedId],
   );
-  const { flowNodes, flowEdges } = useMemo(
+  // A click on a card or its chevron is the user taking over too: the start
+  // fit must not re-frame the tree under the cursor — a selection opens the
+  // sidebar, the canvas narrows, and the refit threw the view off (BBP-298).
+  const userInteracted = useRef(false);
+  const select = useMemo(
     () =>
-      toFlow(layout, nodes, frames, selectedId, onSelect, dimmedIds, expanded, expandable, onToggle, failedLoads, haloId, colorBy),
-    [layout, nodes, frames, selectedId, onSelect, dimmedIds, expanded, expandable, onToggle, failedLoads, haloId, colorBy],
+      onSelect
+        ? (id: string, event?: ReactMouseEvent) => {
+            userInteracted.current = true;
+            onSelect(id, event);
+          }
+        : undefined,
+    [onSelect],
+  );
+  const toggle = useMemo(
+    () =>
+      onToggle
+        ? (id: string) => {
+            userInteracted.current = true;
+            onToggle(id);
+          }
+        : undefined,
+    [onToggle],
+  );
+  const { flowNodes, flowEdges } = useMemo(
+    () => toFlow(layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy),
+    [layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy],
   );
 
   const reducedMotion = usePrefersReducedMotion();
@@ -402,9 +426,8 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
 
   const startFit = useMemo(() => startFitOptions(nodes), [nodes]);
   // Once the user has taken the viewport into their own hands — panned,
-  // zoomed, or asked for an explicit fit — the start fit must stop chasing
-  // the tree; from then on a layout change should leave the view alone.
-  const userInteracted = useRef(false);
+  // zoomed, clicked a card, or asked for an explicit fit — the start fit
+  // must stop chasing the tree; a layout change then leaves the view alone.
 
   // BBP-196: with a restored project filter and restored expanded threads/
   // turns, their children arrive over several async `loadChildren` calls

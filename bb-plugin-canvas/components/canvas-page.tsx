@@ -138,6 +138,8 @@ function saveColorBy(value: ColorMode) {
 const openWhileActive = (node: CanvasNode): boolean =>
   (node.kind === "thread" || node.kind === "turn" || node.kind === "subagent") && node.status === "running";
 
+const HOUR = 3_600_000;
+
 const TOOLBAR_BUTTON =
   "rounded-md border px-2 py-0.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary";
 
@@ -178,7 +180,14 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     saveProjectFilter(ids);
     setProjectIds(ids);
   };
-  const filter: ThreadFilter = useMemo(() => ({ ...defaults, projectIds }), [defaults, projectIds]);
+  // The time window: the settings give the default, the toolbar picks per
+  // page (BBP-298: hiding it made a day-old crew look missing).
+  const [windowPick, setWindowPick] = useState<number | null | undefined>(undefined);
+  const windowMs = windowPick === undefined ? defaults.windowMs : windowPick;
+  const filter: ThreadFilter = useMemo(
+    () => ({ ...defaults, projectIds, windowMs, ...(windowMs === null ? { limit: null } : {}) }),
+    [defaults, projectIds, windowMs],
+  );
   // Threads picked in the "Focus" dropdown: only they and their path show.
   const [picked, setPicked] = useState<string[]>([]);
   const [activeOnly, setActiveOnlyState] = useState(() => loadActiveOnly() ?? activeOnlyDefault);
@@ -291,6 +300,21 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
   const toolbar = (
     <>
       <ProjectFilter projects={state.projects} selected={projectIds} onChange={changeProjects} />
+      <select
+        aria-label="Time window"
+        value={windowMs === null ? "all" : String(windowMs)}
+        onChange={(event) => setWindowPick(event.target.value === "all" ? null : Number(event.target.value))}
+        className={`${TOOLBAR_BUTTON} border-border bg-card text-foreground`}
+      >
+        {[...new Set([HOUR * 12, HOUR * 24, HOUR * 24 * 7, ...(defaults.windowMs !== null ? [defaults.windowMs] : [])])]
+          .sort((a, b) => a - b)
+          .map((ms) => (
+            <option key={ms} value={String(ms)}>
+              {ms % (HOUR * 24) === 0 ? `Last ${ms / (HOUR * 24)} ${ms === HOUR * 24 ? "day" : "days"}` : `Last ${ms / HOUR} hours`}
+            </option>
+          ))}
+        <option value="all">All time</option>
+      </select>
       {layer !== null ? <FocusFilter nodes={layer.nodes} selected={picked} onChange={setPicked} /> : null}
       <button
         type="button"
@@ -336,6 +360,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
             onClick={() => {
               changeProjects([]);
               setPicked([]);
+              setWindowPick(null);
             }}
             className="rounded px-1 text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary"
           >

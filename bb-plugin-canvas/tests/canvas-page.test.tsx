@@ -103,7 +103,7 @@ describe("the Canvas surface", () => {
     expect(screen.getByRole("button", { name: "Expand all" })).toBeTruthy();
     expect(screen.queryByRole("spinbutton")).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Time window" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Projects/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Focus/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Status/ })).toBeNull();
@@ -565,5 +565,20 @@ describe("the Canvas filters, auto-open and Log (BBP-298)", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Plain chat — / }));
     const log = await screen.findByRole("region", { name: "Log" });
     expect(within(log).getByText(/Review the diff/)).toBeTruthy();
+  });
+});
+
+describe("the Canvas time window in the toolbar (BBP-298)", () => {
+  it("starts at the settings' window and widens on request", async () => {
+    canvasPanel({
+      projects: { list: async () => [{ id: "p1", name: "Shop" }] },
+      threads: { list: async () => [row("t1", "p1", "Today"), row("t2", "p1", "Yesterday", { updatedAt: Date.now() - 20 * 3_600_000 })] },
+    });
+    expect(await screen.findByRole("button", { name: /^Today — / })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Yesterday — / })).toBeNull();
+    const select = screen.getByRole("combobox", { name: "Time window" }) as HTMLSelectElement;
+    expect(select.value).toBe(String(12 * 3_600_000));
+    fireEvent.change(select, { target: { value: String(24 * 3_600_000) } });
+    expect(await screen.findByRole("button", { name: /^Yesterday — / })).toBeTruthy();
   });
 });

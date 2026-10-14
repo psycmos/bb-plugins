@@ -287,9 +287,9 @@ describe("startFitOptions (BBP-196)", () => {
     expect(START_MIN_ZOOM).toBeGreaterThan(0.2);
   });
 
-  it("sets no fixed zoom: a small tree still fits larger than the floor", () => {
+  it("never zooms a small tree past 100 % (BBP-298)", () => {
     const options = startFitOptions(tree) as Record<string, unknown>;
-    expect(options.maxZoom).toBeUndefined();
+    expect(options.maxZoom).toBe(1);
   });
 
 });
