@@ -11,22 +11,6 @@ import { createRef } from "react";
 // here), so this wraps the real `useReactFlow` to record every `fitView`
 // call instead.
 const fitViewCalls: unknown[] = [];
-vi.mock("@xyflow/react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@xyflow/react")>();
-  return {
-    ...actual,
-    useReactFlow: () => {
-      const real = actual.useReactFlow();
-      return {
-        ...real,
-        fitView: (options?: unknown) => {
-          fitViewCalls.push(options);
-          return real.fitView(options as never);
-        },
-      };
-    },
-  };
-});
 
 // jsdom never lays elements out, so clientWidth/clientHeight are always 0 —
 // CanvasShell's start-fit effect (BBP-214 feedback 3 round 2) waits for a
@@ -38,7 +22,8 @@ vi.mock("@xyflow/react", async (importOriginal) => {
 Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, value: 800 });
 Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 600 });
 
-const { CanvasShell, colorLightness, START_MIN_ZOOM, startFitOptions } = await import("@/components/CanvasShell");
+const { CanvasShell, colorLightness, START_MIN_ZOOM, startFitOptions, fitListeners } = await import("@/components/CanvasShell");
+fitListeners.add((options) => fitViewCalls.push(options));
 const { CanvasView } = await import("@/components/CanvasView");
 type CanvasEdge = import("@/lib/types").CanvasEdge;
 type CanvasFrame = import("@/lib/types").CanvasFrame;

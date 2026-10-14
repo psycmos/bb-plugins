@@ -1188,3 +1188,19 @@ describe("timelineToCanvas step limit", () => {
     expect(nodes.filter((node) => node.parentId === "thread:t1")).toHaveLength(12);
   });
 });
+
+// BBP-298: the running path reaches down to the step still at work.
+describe("a step still at work is running", () => {
+  const base = fixtures.workCommandBash as TimelineRowLike;
+  it("marks a work row with a running status, or started and not ended", () => {
+    const [byStatus] = timelineToCanvas("t1", { rows: [{ ...base, id: "a", status: "running", completedAt: undefined }] }).nodes;
+    expect(byStatus!.status).toBe("running");
+    const [open] = timelineToCanvas("t1", { rows: [{ ...base, id: "b", status: undefined, startedAt: 1, completedAt: undefined }] }).nodes;
+    expect(open!.status).toBe("running");
+  });
+
+  it("leaves a completed step alone", () => {
+    const [done] = timelineToCanvas("t1", { rows: [{ ...base, id: "c", status: "completed", startedAt: 1, completedAt: undefined }] }).nodes;
+    expect(done!.status).toBeUndefined();
+  });
+});

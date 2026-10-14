@@ -21,6 +21,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  getViewportForBounds,
   useReactFlow,
   type ColorMode,
   type Edge,
@@ -198,6 +199,13 @@ function wheelZoomDelta(event: { deltaY: number; deltaMode: number }): number {
  *  Reverted to 0.6; the real cause was the start fit racing the host
  *  container's first real-size measurement (see the fit effect below). */
 export const START_MIN_ZOOM = 0.5;
+
+/** How long after mount the start fit keeps following the tree. */
+export const START_FIT_WINDOW_MS = 2500;
+
+/** Told every fit the shell makes — jsdom cannot measure the result, so the
+ *  tests observe the fits themselves. */
+export const fitListeners = new Set<(options: unknown) => void>();
 
 /** The first fit frames the roots and two levels below them, never deeper, and never zooms out past `START_MIN_ZOOM`. A floor, not a fixed
  *  zoom: a small tree still fits as large as it would anyway. */
@@ -396,11 +404,22 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
   // fit must not re-frame the tree under the cursor — a selection opens the
   // sidebar, the canvas narrows, and the refit threw the view off (BBP-298).
   const userInteracted = useRef(false);
+  // The card the user just clicked stays where it is on screen while the
+  // layout around it changes (a parent re-centres on its new children): the
+  // viewport moves by however far the card moved (BBP-298).
+  const anchor = useRef<{ id: string; x: number; y: number } | null>(null);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const pin = (id: string) => {
+    const placed = layoutRef.current.positions.find((p) => p.id === id);
+    anchor.current = placed ? { id, x: placed.x, y: placed.y } : null;
+  };
   const select = useMemo(
     () =>
       onSelect
         ? (id: string, event?: ReactMouseEvent) => {
             userInteracted.current = true;
+            pin(id);
             onSelect(id, event);
           }
         : undefined,
@@ -411,6 +430,7 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
       onToggle
         ? (id: string) => {
             userInteracted.current = true;
+            pin(id);
             onToggle(id);
           }
         : undefined,
@@ -420,6 +440,37 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
     () => toFlow(layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy),
     [layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy],
   );
+
+  useEffect(() => {
+    const pinned = anchor.current;
+    if (!pinned) return;
+    const placed = layout.positions.find((p) => p.id === pinned.id);
+    if (!placed) return;
+    const dx = placed.x - pinned.x;
+    const dy = placed.y - pinned.y;
+    anchor.current = { id: pinned.id, x: placed.x, y: placed.y };
+    if (dx === 0 && dy === 0) return;
+    const { x, y, zoom } = flow.getViewport();
+
+    flow.setViewport({ x: x - dx * zoom, y: y - dy * zoom, zoom });
+  }, [layout, flow]);
+
+  // Fits computed from our own layout and set at once. React Flow's
+  // `fitView` waits until every node is measured and then runs late — after
+  // an expand, its old start fit fired again and threw the view off (BBP-298).
+  const fitNow = (options: { nodes?: { id: string }[]; padding?: number; minZoom?: number; maxZoom?: number; duration?: number }) => {
+    const host = hostRef.current;
+    if (!host || host.clientWidth === 0 || host.clientHeight === 0) return;
+    for (const listener of fitListeners) listener(options);
+    const wanted = options.nodes ? new Set(options.nodes.map((n) => n.id)) : null;
+    const boxes = layoutRef.current.positions.filter((p) => wanted === null || wanted.has(p.id));
+    if (boxes.length === 0) return;
+    const x = Math.min(...boxes.map((p) => p.x));
+    const y = Math.min(...boxes.map((p) => p.y));
+    const bounds = { x, y, width: Math.max(...boxes.map((p) => p.x + p.width)) - x, height: Math.max(...boxes.map((p) => p.y + p.height)) - y };
+    const viewport = getViewportForBounds(bounds, host.clientWidth, host.clientHeight, options.minZoom ?? MIN_ZOOM, options.maxZoom ?? MAX_ZOOM, options.padding ?? 0.08);
+    void flow.setViewport(viewport, options.duration ? { duration: options.duration } : undefined);
+  };
 
   const reducedMotion = usePrefersReducedMotion();
   const animatedNodes = useNodeMotion(flowNodes, reducedMotion);
@@ -450,8 +501,12 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
   // `fitView` again just because of that. Gate the fit on our *own* host
   // element reporting a real size first, polling a frame at a time, so we
   // never fit against a guess.
+  // The start fit follows the tree only while it is still arriving: live
+  // updates afterwards re-framed the view under the user every few seconds
+  // until their first click (BBP-298).
+  const mountedAt = useRef(Date.now());
   useEffect(() => {
-    if (userInteracted.current) return;
+    if (userInteracted.current || Date.now() - mountedAt.current > START_FIT_WINDOW_MS) return;
     let frame = 0;
     const tryFit = () => {
       const host = hostRef.current;
@@ -461,7 +516,7 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
       }
       // A frame later still: React Flow takes the new nodes into its store
       // in its own effect, and fitting before that fits the old tree.
-      frame = requestAnimationFrame(() => void flow.fitView(startFit));
+      frame = requestAnimationFrame(() => fitNow(startFit));
     };
     frame = requestAnimationFrame(tryFit);
     return () => cancelAnimationFrame(frame);
@@ -472,7 +527,7 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
     userInteracted.current = true;
     // A frame later: React Flow takes the new nodes into its store in its
     // own effect, and fitting before that fits the old tree.
-    const frame = requestAnimationFrame(() => void flow.fitView(FIT_VIEW_OPTIONS));
+    const frame = requestAnimationFrame(() => fitNow(FIT_VIEW_OPTIONS));
     return () => cancelAnimationFrame(frame);
   }, [fitRequest, flow]);
 
@@ -481,7 +536,7 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
     () => ({
       resetView: () => {
         userInteracted.current = true;
-        flow.fitView();
+        fitNow(FIT_VIEW_OPTIONS);
       },
       zoomIn: () => {
         userInteracted.current = true;
@@ -495,7 +550,7 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
         userInteracted.current = true;
         // A frame later: a jump can expand nothing, but the layout may still
         // be settling from the selection's own re-layout.
-        requestAnimationFrame(() => void flow.fitView({ nodes: [{ id: nodeId }], maxZoom: flow.getZoom(), minZoom: flow.getZoom(), duration: 200 }));
+        requestAnimationFrame(() => fitNow({ nodes: [{ id: nodeId }], maxZoom: flow.getZoom(), minZoom: flow.getZoom(), duration: 200 }));
       },
     }),
     [flow],
@@ -551,6 +606,9 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
         // `CanvasView` already gives a meaning to. Without this, a click on a
         // card (which focuses its node) hands those keys to React Flow first.
         disableKeyboardA11y
+        // A focused card must not pan the view: a click on a card or its
+        // chevron focuses it, and React Flow then re-centred it (BBP-298).
+        autoPanOnNodeFocus={false}
         zoomOnScroll={false}
         panOnScroll
         zoomOnPinch

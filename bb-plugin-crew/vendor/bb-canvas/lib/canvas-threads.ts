@@ -518,17 +518,26 @@ function workLabel(row: TimelineRowLike): string {
   }
 }
 
+const RUNNING_ROW = new Set(["running", "in_progress", "pending", "started", "streaming"]);
+const SETTLED_ROW = new Set(["completed", "error", "failed", "cancelled", "canceled", "skipped", "done"]);
+
 /** Builds a row's own canvas node plus, for a subagent spawn, its own
  *  `childRows` flattened alongside it. */
 function rowNodes(row: TimelineRowLike, parentId: string, threadId?: string): CanvasNode[] {
   const id = `row:${row.id}`;
   const isWork = row.kind === "work" && !isSubagentRow(row);
-  const failed = isWork && typeof row.exitCode === "number" && row.exitCode !== 0;
+  const failed = (isWork && typeof row.exitCode === "number" && row.exitCode !== 0) || row.status === "error" || row.status === "failed";
+  // A step still at work: the running path then reaches down to it, as in
+  // agent-graph (BBP-298). Started without an end and not settled counts too.
+  const running =
+    !failed &&
+    row.kind === "work" &&
+    (RUNNING_ROW.has(row.status ?? "") || (row.startedAt != null && row.completedAt == null && !SETTLED_ROW.has(row.status ?? "")));
   const node: CanvasNode = {
     id,
     kind: row.kind === "conversation" ? "turn" : isSubagentRow(row) ? "subagent" : "tool-call",
     label: isWork ? workLabel(row) : rowLabel(row),
-    ...(failed ? { status: "failed" as const } : {}),
+    ...(failed ? { status: "failed" as const } : running ? { status: "running" as const } : {}),
     parentId,
     meta: {
       rowId: row.id,

@@ -35,8 +35,8 @@ export type NodeCardProps = {
    *  simply has nothing — the destructive border wins even over a neutral
    *  `status`, and clicking the card (or its chevron) retries. */
   loadFailed?: boolean;
-  /** agent-graph's look (BBP-298): a colour bar on the left edge and a
-   *  tinted square behind the icon. Absent: the neutral card. */
+  /** The type colour (BBP-298), carried by the icon alone: a tinted square
+   *  behind it. The card's border stays neutral. Absent: the neutral card. */
   accent?: string;
 };
 
@@ -149,7 +149,6 @@ export function NodeCard({
         padding: tier === "card" ? "6px 10px" : "0 10px",
         borderRadius: radius,
         border,
-        ...(accent ? { borderLeft: `3px solid ${accent}` } : {}),
         // --ring, the same ink as the selected-path edge, so ring and path read
         // as one selection rather than as another "running" accent.
         outline: selected ? "2px solid var(--ring)" : "none",
