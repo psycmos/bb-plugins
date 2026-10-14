@@ -105,6 +105,8 @@ export function describeNode(kind: CanvasNodeKind, childCount: number, meta?: Re
     return facts.length > 0 ? facts.join(" · ") : KIND_LABEL.thread;
   }
   if (kind === "tool-call") return describeToolCall(meta);
+  // A graph run: how far it got (BBP-303), the strip below shows where.
+  if (kind === "graph-run" && typeof meta?.steps === "string" && !meta?.placeholder) return `${KIND_LABEL["graph-run"]} · ${meta.steps}`;
   // As agent-graph: the root and a project count what hangs under them.
   if (kind === "agents") return `${childCount} ${childCount === 1 ? "project" : "projects"}`;
   if (kind === "project") {

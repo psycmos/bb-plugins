@@ -56,6 +56,7 @@ function ensureNowStyles(): void {
 
 function strokeFor(state: CanvasEdgeState | undefined, selected: boolean | undefined): { stroke: string; strokeWidth: number } {
   if (state === "now") return { stroke: "var(--primary)", strokeWidth: 2 };
+  if (state === "needs") return { stroke: "#f59e0b", strokeWidth: 2 };
   if (state === "selected-path") return { stroke: "var(--ring)", strokeWidth: 1.75 };
   return { stroke: selected ? "var(--primary)" : "var(--border)", strokeWidth: selected ? 2 : 1.5 };
 }
@@ -76,7 +77,7 @@ export function StatusEdge({ data, selected }: StatusEdgeProps) {
     >
       <BaseEdge
         path={data.path}
-        className={data.state === "now" ? NOW_CLASS : undefined}
+        className={data.state === "now" || data.state === "needs" ? NOW_CLASS : undefined}
         style={{
           stroke,
           strokeWidth,

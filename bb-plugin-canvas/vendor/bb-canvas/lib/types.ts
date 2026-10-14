@@ -53,7 +53,8 @@ export type CanvasEdgeVariant = "flow" | "back" | "message";
  *  look like ongoing activity). `"now"` takes precedence over
  *  `"selected-path"` when both would apply. A `message` edge never carries
  *  this: that is BBP-97's. */
-export type CanvasEdgeState = "now" | "selected-path";
+/** "needs": on the way to something that waits for the human (BBP-303). */
+export type CanvasEdgeState = "now" | "needs" | "selected-path";
 
 /**
  * An edge beyond the tree itself: `layoutTree` draws the parent/child line for

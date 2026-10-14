@@ -35,7 +35,7 @@ describe("graphCanvasLayer", () => {
     ], new Map());
     expect(layer.nodes).toEqual([
       { id: "graph-run:r1", kind: "graph-run", label: "Loop", status: "running", parentId: "project:p1",
-        meta: { runId: "r1", graphId: "loop", status: "running", threadId: null, started: "1970-01-01 00:00 UTC", steps: "1/3" } },
+        meta: { runId: "r1", graphId: "loop", status: "running", threadId: null, started: "1970-01-01 00:00 UTC", steps: "1/3", progress: ["done", "running", "todo"] } },
       { id: "step:r1:a", kind: "step", label: "Plan", status: "done", parentId: "graph-run:r1", meta: { nodeId: "a", attempts: 2 } },
       { id: "step:r1:b", kind: "step", label: "Build", status: "running", parentId: "graph-run:r1", meta: { nodeId: "b", attempts: 1 } },
       { id: "step:r1:c", kind: "step", label: "Check", parentId: "graph-run:r1", meta: { nodeId: "c", attempts: 0 } },

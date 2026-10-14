@@ -29,3 +29,20 @@ describe("canvasExtensionLayer", () => {
     expect(layer.nodes.some((n) => n.kind === "crew" || n.kind === "agents")).toBe(false);
   });
 });
+
+describe("canvasExtensionLayer progress and needs you (BBP-303)", () => {
+  it("gives a run its progress and, while it waits, the question it waits on", () => {
+    const waiting = {
+      id: "r3",
+      projectId: "p1",
+      threadId: null,
+      status: "waiting-human",
+      createdAt: 1,
+      graph: { id: "g", name: "G", nodes: [{ id: "a", label: "A" }, { id: "b", label: "Approve" }], edges: [] },
+      nodeRuns: [{ nodeId: "a", attempt: 1, status: "done" }],
+      pendingQuestion: { nodeId: "b", label: "Approve", question: "OK?" },
+    } as never;
+    const run = canvasExtensionLayer("p1", [waiting]).nodes.find((n) => n.kind === "graph-run")!;
+    expect(run.meta).toMatchObject({ progress: ["done", "waiting"], needsYou: { runId: "r3", nodeId: "b", question: "OK?" } });
+  });
+});

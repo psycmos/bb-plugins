@@ -12,6 +12,7 @@ function Dot({ color }: { color: string }) {
 }
 
 export function Legend({ nodes, colorBy }: { nodes: readonly CanvasNode[]; colorBy: ColorMode }) {
+  const needs = nodes.filter((node) => node.meta?.needsYou).length;
   const [open, setOpen] = useState(true);
   const counts = { running: 0, failed: 0, done: 0, idle: 0 };
   for (const node of nodes) if (node.kind !== "agents" && node.kind !== "project") counts[statusKey(node.status)] += 1;
@@ -52,6 +53,12 @@ export function Legend({ nodes, colorBy }: { nodes: readonly CanvasNode[]; color
                 <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{counts[key]}</span>
               </span>
             ))}
+            {/* BBP-303: what waits for the human, counted apart from the states. */}
+            <span style={{ display: "flex", alignItems: "center", gap: 5, color: needs > 0 ? "#b45309" : undefined, fontWeight: needs > 0 ? 600 : undefined }}>
+              <Dot color="#f59e0b" />
+              Needs you
+              <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{needs}</span>
+            </span>
           </div>
           <div style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
             Click a node for details · double-click a thread to open its chat · drag or scroll to pan · ⌘/Ctrl+scroll to zoom · J jumps to running work

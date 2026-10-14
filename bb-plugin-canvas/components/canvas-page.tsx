@@ -231,6 +231,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     setColorByState(value);
   };
   const viewRef = useRef<HTMLDivElement | null>(null);
+  const needsCursor = useRef(0);
   const turnsPerThread = useRef(filter.turnsPerThread);
   turnsPerThread.current = filter.turnsPerThread;
   // Per thread node: bumped on every `thread:changed`; CanvasView reloads
@@ -467,6 +468,14 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     );
   const visible = visibleFocusIds(layer.nodes, focusIds);
   const running = layer.nodes.filter((node) => node.status === "running").length;
+  // BBP-303: what waits for the human; the button cycles through it.
+  const needing = layer.nodes.filter((node) => node.meta?.needsYou).map((node) => node.id);
+  const jumpToNeeds = () => {
+    if (needing.length === 0) return;
+    const at = needsCursor.current % needing.length;
+    needsCursor.current = at + 1;
+    setReveal((prev) => ({ id: needing[at]!, seq: (prev?.seq ?? 0) + 1 }));
+  };
   // "Running N" does what J does: the canvas cycles through running work.
   const jumpToRunning = () => viewRef.current?.querySelector<HTMLElement>("[data-canvas-view]")?.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
   return (
@@ -486,7 +495,19 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
           controlsPosition="bottom-right"
           overlay={(shown) => <Legend nodes={shown} colorBy={colorBy} />}
           cornerAction={
-            running > 0 ? (
+            running > 0 || needing.length > 0 ? (
+              <span className="flex items-center gap-1.5">
+                {needing.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={jumpToNeeds}
+                    className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] shadow-sm"
+                    style={{ borderColor: "#fcd34d", background: "#fffbeb", color: "#b45309" }}
+                  >
+                    ◷ Needs you {needing.length}
+                  </button>
+                ) : null}
+                {running > 0 ? (
               <button
                 type="button"
                 onClick={jumpToRunning}
@@ -495,6 +516,8 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
                 <span aria-hidden className="h-2 w-2 rounded-full bg-primary" />
                 Running {running}
               </button>
+                ) : null}
+              </span>
             ) : null
           }
           surface="canvas"

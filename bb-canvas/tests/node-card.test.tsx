@@ -238,3 +238,22 @@ describe("NodeCard on the active path (BBP-298)", () => {
     expect(screen.getByRole("button").style.border).toContain("var(--destructive)");
   });
 });
+
+describe("NodeCard needs you and progress (BBP-303)", () => {
+  it("marks a card that waits for the human: amber border, symbol and a leading 'Needs you'", () => {
+    render(<NodeCard label="Skill load probe" kind="graph-run" subtitle="Graph run · 1/2" needsYou />);
+    const card = screen.getByRole("button", { name: "Skill load probe — Needs you · Graph run · 1/2" });
+    expect(card.getAttribute("style")).toContain("solid");
+    expect(card.querySelector("[data-bb-needs-you]")).toBeTruthy();
+  });
+
+  it("borders an ancestor on the way to it amber dashed", () => {
+    render(<NodeCard label="bb-plugins" kind="project" needsPath />);
+    expect(screen.getByRole("button").getAttribute("style")).toContain("dashed");
+  });
+
+  it("draws one progress segment per step", () => {
+    render(<NodeCard label="run" kind="graph-run" progress={["done", "running", "waiting", "todo"]} />);
+    expect(screen.getByRole("button").querySelector("[data-bb-progress]")!.children).toHaveLength(4);
+  });
+});

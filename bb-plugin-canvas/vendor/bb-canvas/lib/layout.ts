@@ -200,6 +200,12 @@ export function layoutTree(
   // As agent-graph: the whole path from the root down to running work is
   // marked, not only the last edge into the running node (BBP-298).
   const runningBranch = new Set<string>();
+  // The same for whatever waits for the human (BBP-303): its path turns amber.
+  const needsBranch = new Set<string>();
+  for (const node of nodes) {
+    if (!node.meta?.needsYou) continue;
+    for (let id = parentOf(node); id !== null && !needsBranch.has(id); id = parentOf(byId.get(id)!)) needsBranch.add(id);
+  }
   for (const node of nodes) {
     if (node.status !== "running") continue;
     for (let id = parentOf(node); id !== null && !runningBranch.has(id); id = parentOf(byId.get(id)!)) runningBranch.add(id);
@@ -207,7 +213,7 @@ export function layoutTree(
   const flowEdges: PlacedEdge[] = order.flatMap((id) => {
     const parentId = parentIdOf.get(id)!;
     if (parentId === null) return [];
-    return [flowEdge(placed.get(parentId)!, placed.get(id)!, byId.get(id)!, onSelectedPath.has(id), runningBranch.has(id))];
+    return [flowEdge(placed.get(parentId)!, placed.get(id)!, byId.get(id)!, onSelectedPath.has(id), runningBranch.has(id), needsBranch.has(id))];
   });
 
   const declaredEdges: PlacedEdge[] = edges.flatMap((edge) => {
@@ -281,19 +287,21 @@ function placeFrames(
  *  draws the plain neutral line like anything else — "taken" is gone
  *  (BBP-214 stage 1): a line to a `done` step must not look like ongoing
  *  activity. */
-function flowEdgeState(child: CanvasNode, onSelectedPath: boolean, leadsToRunning = false): CanvasEdgeState | undefined {
+function flowEdgeState(child: CanvasNode, onSelectedPath: boolean, leadsToRunning = false, leadsToNeeds = false): CanvasEdgeState | undefined {
+  // Waiting for the human outranks running: it is the one thing to act on.
+  if (child.meta?.needsYou || leadsToNeeds) return "needs";
   if (child.status === "running" || leadsToRunning) return "now";
   return onSelectedPath ? "selected-path" : undefined;
 }
 
-function flowEdge(from: PlacedNode, to: PlacedNode, toNode: CanvasNode, onSelectedPath: boolean, leadsToRunning = false): PlacedEdge {
+function flowEdge(from: PlacedNode, to: PlacedNode, toNode: CanvasNode, onSelectedPath: boolean, leadsToRunning = false, leadsToNeeds = false): PlacedEdge {
   const fromX = from.x + from.width;
   const fromY = from.y + from.height / 2;
   const toX = to.x;
   const toY = to.y + to.height / 2;
   const midX = (fromX + toX) / 2;
   const path = [`M ${fromX} ${fromY}`, `C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`].join(" ");
-  const state = flowEdgeState(toNode, onSelectedPath, leadsToRunning);
+  const state = flowEdgeState(toNode, onSelectedPath, leadsToRunning, leadsToNeeds);
   return { from: from.id, to: to.id, variant: "flow", path, label: "", isBack: false, ...(state ? { state } : {}) };
 }
 

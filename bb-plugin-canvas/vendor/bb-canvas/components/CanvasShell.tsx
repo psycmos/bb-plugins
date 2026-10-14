@@ -339,6 +339,12 @@ function toFlow(
     if (node.status !== "running") continue;
     for (let id = node.parentId; id !== null && byId.has(id) && !activePath.has(id); id = byId.get(id)!.parentId) activePath.add(id);
   }
+  // Every ancestor of something waiting for the human (BBP-303).
+  const needsPath = new Set<string>();
+  for (const node of nodes) {
+    if (!node.meta?.needsYou) continue;
+    for (let id = node.parentId; id !== null && byId.has(id) && !needsPath.has(id); id = byId.get(id)!.parentId) needsPath.add(id);
+  }
   const flowNodes: Node[] = layout.positions.map((placed) => {
     const node = byId.get(placed.id)!;
     const data: NodeCardProps = {
@@ -353,6 +359,9 @@ function toFlow(
       dimmed: dimmedIds.has(node.id),
       loadFailed: failedLoads.has(node.id),
       activePath: activePath.has(node.id),
+      needsYou: Boolean(node.meta?.needsYou),
+      needsPath: needsPath.has(node.id),
+      ...(Array.isArray(node.meta?.progress) ? { progress: node.meta.progress as string[] } : {}),
       ...(colorBy ? { accent: accentOf(node, colorBy) } : {}),
       ...(stepsAsLog && LOG_KINDS.has(node.kind) ? { log: logOf(node, longest.get(node.parentId ?? "") ?? 0) } : {}),
       expander: expandable.has(node.id)

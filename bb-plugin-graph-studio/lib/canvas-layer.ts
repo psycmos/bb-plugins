@@ -23,7 +23,9 @@ export type CanvasRun = {
   status: RunStatus;
   threadId: string | null;
   createdAt: number;
-  nodeRuns: { nodeId: string; attempt: number; status: StepStatus }[];
+  nodeRuns: { nodeId: string; attempt: number; status: StepStatus; childThreadId?: string | null }[];
+  /** The question the run waits on (a human node), if it waits. */
+  pendingQuestion?: { nodeId: string; label: string; question: string } | null;
 };
 
 const RUN_STATUS: Record<RunStatus, CanvasStatus> = {
@@ -91,6 +93,12 @@ function addRun(layer: CanvasLayer, run: CanvasRun, parentId: string): void {
     if (!seen || step.attempt >= seen.attempt) latest.set(step.nodeId, step);
   }
   const done = run.graph.nodes.filter((node) => latest.get(node.id)?.status === "done").length;
+  // BBP-303: one segment per step for the card's progress strip, and the
+  // question the run waits on — the canvas draws "Needs you" from it.
+  const waitingOn = run.status === "waiting-human" ? (run.pendingQuestion ?? null) : null;
+  const progress = run.graph.nodes.map((node) =>
+    waitingOn?.nodeId === node.id ? "waiting" : (STEP_STATUS[latest.get(node.id)?.status as StepStatus] ?? "todo"),
+  );
   const started = formatTimestamp(run.createdAt);
   layer.nodes.push({
     id,
@@ -105,6 +113,8 @@ function addRun(layer: CanvasLayer, run: CanvasRun, parentId: string): void {
       threadId: run.threadId,
       ...(started ? { started } : {}),
       steps: `${done}/${run.graph.nodes.length}`,
+      progress,
+      ...(waitingOn ? { needsYou: { kind: "graph-studio", runId: run.id, nodeId: waitingOn.nodeId, label: waitingOn.label, question: waitingOn.question } } : {}),
     },
   });
 

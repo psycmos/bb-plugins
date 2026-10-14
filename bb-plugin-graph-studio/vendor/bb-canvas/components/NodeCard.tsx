@@ -45,9 +45,27 @@ export type NodeCardProps = {
   /** On the way to running work (an ancestor of it): drawn like running —
    *  dashed blue border — without being running itself (BBP-298). */
   activePath?: boolean;
+  /** Waits for the human (BBP-303): amber border and a "Needs you" chip —
+   *  a state of this card, never a card of its own. */
+  needsYou?: boolean;
+  /** On the way to something that needs the human: an amber dashed border. */
+  needsPath?: boolean;
+  /** One status per step of a graph run: a thin strip along the bottom. */
+  progress?: readonly string[];
 };
 
 const AMBER = "var(--warning)";
+/** "Needs you" (BBP-303): a fixed amber, so it reads the same in every theme. */
+const NEEDS = "#f59e0b";
+
+const PROGRESS_COLOR: Record<string, string> = {
+  done: "#10b981",
+  running: "repeating-linear-gradient(90deg, var(--primary) 0 4px, color-mix(in oklab, var(--primary) 40%, transparent) 4px 7px)",
+  waiting: NEEDS,
+  failed: "var(--destructive)",
+  idle: "var(--border)",
+  todo: "var(--border)",
+};
 
 const PULSE_CLASS = "bb-canvas-pulse";
 const STYLE_ID = "bb-canvas-node-card-styles";
@@ -132,6 +150,9 @@ export function NodeCard({
   accent,
   log,
   activePath = false,
+  needsYou = false,
+  needsPath = false,
+  progress,
 }: NodeCardProps) {
   ensurePulseStyles();
   if (log) return <LogRow label={label} status={status} selected={selected} halo={halo} onClick={onClick} dimmed={dimmed} expander={expander} log={log} />;
@@ -139,12 +160,17 @@ export function NodeCard({
   const typo = TIER_TYPOGRAPHY[tier];
   const own = visualFor(status, tier, loadFailed);
   // An ancestor of running work borders like it; its own failure or wait wins.
-  const { border, pulse, background, radius } =
-    activePath && (status === undefined || status === "idle" || status === "done") && !loadFailed
-      ? { ...own, border: "1.5px dashed var(--primary)" }
-      : own;
+  const quiet = (status === undefined || status === "idle" || status === "done" || status === "waiting") && !loadFailed;
+  const { border, pulse, background, radius } = needsYou
+    ? { ...own, border: `1.5px solid ${NEEDS}`, pulse: false }
+    : needsPath && quiet
+      ? { ...own, border: `1.5px dashed ${NEEDS}` }
+      : activePath && quiet && status !== "waiting"
+        ? { ...own, border: "1.5px dashed var(--primary)" }
+        : own;
   const errorText = loadFailed ? "Could not load activity" : undefined;
-  const effectiveSubtitle = errorText ?? subtitle;
+  // "Needs you" leads the second line, where it does not crowd the title.
+  const effectiveSubtitle = errorText ?? (needsYou ? `Needs you${subtitle ? ` · ${subtitle}` : ""}` : subtitle);
   // Group: the counter rides beside the title, no second line — 28px has
   // room for one. Card: counter/subtitle sits on its own line below. Row:
   // no secondary text at all, however compact its title already is.
@@ -172,8 +198,9 @@ export function NodeCard({
         // as one selection rather than as another "running" accent.
         outline: selected ? "2px solid var(--ring)" : "none",
         outlineOffset: 2,
-        ...(halo ? { boxShadow: "0 0 0 6px color-mix(in srgb, var(--ring) 35%, transparent)" } : {}),
+        ...(halo ? { boxShadow: "0 0 0 6px color-mix(in srgb, var(--ring) 35%, transparent)" } : needsYou ? { boxShadow: `0 0 0 3px color-mix(in oklab, ${NEEDS} 22%, transparent)` } : {}),
         background,
+        position: "relative",
         color: "var(--foreground)",
         textAlign: "left",
         cursor: dimmed ? "default" : "pointer",
@@ -260,8 +287,8 @@ export function NodeCard({
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
               fontSize: typo.subSize,
-              fontWeight: typo.subWeight,
-              color: errorText ? "var(--destructive)" : "var(--muted-foreground)",
+              color: errorText ? "var(--destructive)" : needsYou ? "#b45309" : "var(--muted-foreground)",
+              fontWeight: needsYou ? 600 : typo.subWeight,
             }}
           >
             {errorText ? (
@@ -285,6 +312,22 @@ export function NodeCard({
           </span>
         ) : null}
       </span>
+      {needsYou ? (
+        <span
+          data-bb-needs-you
+          title="Needs you"
+          style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#b45309", background: "#fef3c7", borderRadius: 4, padding: "0 4px", lineHeight: "16px" }}
+        >
+          ◷
+        </span>
+      ) : null}
+      {progress && progress.length > 0 ? (
+        <span aria-hidden data-bb-progress style={{ position: "absolute", left: 42, right: 12, bottom: 5, display: "flex", gap: 2 }}>
+          {progress.map((step, index) => (
+            <span key={index} style={{ flex: 1, height: 3, borderRadius: 2, background: PROGRESS_COLOR[step] ?? PROGRESS_COLOR.todo }} />
+          ))}
+        </span>
+      ) : null}
       {status === "done" ? (
         <svg
           aria-hidden
