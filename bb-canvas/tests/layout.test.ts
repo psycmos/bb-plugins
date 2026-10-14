@@ -336,3 +336,29 @@ describe("layoutTree", () => {
     });
   });
 });
+
+describe("frames and crew links (BBP-191)", () => {
+  const crew: CanvasNode[] = [
+    { id: "root", kind: "agents", label: "Agents", parentId: null },
+    { id: "before", kind: "thread", label: "Before", parentId: "root" },
+    { id: "a", kind: "thread", label: "a", parentId: "root", frameId: "frame:x" },
+    { id: "b", kind: "thread", label: "b", parentId: "root", frameId: "frame:x" },
+  ];
+  const frames = [{ id: "frame:x", parentId: null, label: "x" }];
+
+  it("keeps room above a frame for its label, clear of the card above it", () => {
+    const layout = layoutTree(crew, new Set(["root"]), [], frames);
+    const before = layout.positions.find((p) => p.id === "before")!;
+    const frame = layout.frames!.find((f) => f.id === "frame:x")!;
+    expect(frame.y).toBeGreaterThanOrEqual(before.y + before.height);
+  });
+
+  it("bows a link between two cards of one column out past their right edge", () => {
+    const layout = layoutTree(crew, new Set(["root"]), [{ from: "a", to: "b", variant: "message", relation: true }], frames);
+    const edge = layout.edges.find((e) => e.from === "a" && e.to === "b")!;
+    const a = layout.positions.find((p) => p.id === "a")!;
+    expect(edge.path).toContain(" C ");
+    const laneX = Number(edge.path.split(" C ")[1]!.split(" ")[0]);
+    expect(laneX).toBeGreaterThan(a.x + a.width);
+  });
+});

@@ -73,3 +73,14 @@ describe("relation edges in the shell", () => {
     expect(layout.edges.find((edge) => edge.relation)).toMatchObject({ relation: true, emphasis: "highlight", label: "assigns_to" });
   });
 });
+
+describe("relations on by default where a page asks for it (BBP-191)", () => {
+  it("falls back to the page's default until the user chose, then keeps the choice", async () => {
+    const { loadRelations, saveRelations } = await import("@/lib/relations");
+    localStorage.clear();
+    expect(loadRelations("canvas", true)).toBe(true);
+    saveRelations("canvas", false);
+    expect(loadRelations("canvas", true)).toBe(false);
+    expect(loadRelations("other")).toBe(false);
+  });
+});

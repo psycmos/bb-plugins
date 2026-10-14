@@ -50,13 +50,14 @@ export function relationsView(
   });
 }
 
-/** Off unless stored as on; never throws (see `loadExpandedState`). */
-export function loadRelations(surface: string | undefined): boolean {
-  if (surface === undefined) return false;
+/** The stored choice, else `fallback` (off unless a page asks for on, BBP-191); never throws (see `loadExpandedState`). */
+export function loadRelations(surface: string | undefined, fallback = false): boolean {
+  if (surface === undefined) return fallback;
   try {
-    return localStorage.getItem(relationsStorageKey(surface)) === "on";
+    const stored = localStorage.getItem(relationsStorageKey(surface));
+    return stored === null ? fallback : stored === "on";
   } catch {
-    return false;
+    return fallback;
   }
 }
 

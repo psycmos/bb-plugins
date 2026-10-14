@@ -35,14 +35,16 @@ export function Frame({ label, x, y, width, height, dimmed = false }: FrameProps
       {label ? (
         <span
           style={{
+            // Inside the frame's head room, not across its border: no card
+            // can sit over it there (BBP-191).
             position: "absolute",
-            top: -9,
-            left: 10,
-            padding: "0 6px",
+            top: 5,
+            left: 12,
+            padding: 0,
+            whiteSpace: "nowrap",
             fontSize: 11,
             fontWeight: 600,
             color: "var(--muted-foreground)",
-            background: "var(--background)",
           }}
         >
           {label}

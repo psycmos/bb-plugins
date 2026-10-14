@@ -23,6 +23,9 @@ export const MARGIN = 24;
 const BACK_EDGE_LANE = 32;
 /** Space between a frame's box and the cards it encloses. */
 export const FRAME_PADDING = 16;
+/** Room above a frame's first card for its label, kept free in the layout so
+ *  neither the label nor the frame reach into the cards above (BBP-191). */
+export const FRAME_HEAD = 22;
 
 export type PlacedNode = {
   id: string;
@@ -137,10 +140,19 @@ export function layoutTree(
   }
   const centerYOf = new Map<string, number>();
   let nextY = MARGIN;
+  let lastFrame: string | undefined;
   const placeCenters = (id: string): number => {
     const kids = visibleChildren.get(id) ?? [];
     if (kids.length === 0) {
       const height = sizeOf(byId.get(id)!.kind).height;
+      // Entering a frame: room for its padding and label above the card;
+      // leaving one: room for its padding below the last card.
+      const frame = byId.get(id)!.frameId;
+      if (frame !== lastFrame) {
+        if (lastFrame !== undefined) nextY += FRAME_PADDING;
+        if (frame !== undefined) nextY += FRAME_PADDING + FRAME_HEAD;
+        lastFrame = frame;
+      }
       const top = nextY;
       nextY = top + height + ROW_GAP;
       const center = top + height / 2;
@@ -255,9 +267,9 @@ function placeFrames(
       {
         id: frame.id,
         x: minX - FRAME_PADDING,
-        y: minY - FRAME_PADDING,
+        y: minY - FRAME_PADDING - FRAME_HEAD,
         width: maxX - minX + FRAME_PADDING * 2,
-        height: maxY - minY + FRAME_PADDING * 2,
+        height: maxY - minY + FRAME_PADDING * 2 + FRAME_HEAD,
       },
     ];
   });
@@ -320,7 +332,16 @@ function messageEdge(from: PlacedNode, to: PlacedNode, edge: CanvasEdge): Placed
   const fromY = from.y + from.height / 2;
   const toX = to.x + to.width / 2;
   const toY = to.y + to.height / 2;
-  const path = `M ${fromX} ${fromY} L ${toX} ${toY}`;
+  // Two cards in one column (a crew's members): centre to centre runs under
+  // the cards. Bow out past their right edge instead, further the further
+  // apart they are, so the arcs of one crew nest instead of overlapping
+  // (BBP-191).
+  const sameColumn = Math.abs(from.x - to.x) < 1;
+  const right = Math.max(from.x + from.width, to.x + to.width);
+  const lane = right + 14 + Math.min(70, Math.abs(toY - fromY) / 5);
+  const path = sameColumn
+    ? `M ${right - 6} ${fromY} C ${lane} ${fromY}, ${lane} ${toY}, ${right - 6} ${toY}`
+    : `M ${fromX} ${fromY} L ${toX} ${toY}`;
   return {
     from: from.id,
     to: to.id,

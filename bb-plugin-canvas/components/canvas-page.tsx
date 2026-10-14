@@ -481,6 +481,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
           colorBy={colorBy}
           breadcrumbInSidebar
           stepsAsLog
+          relationsByDefault
           autoExpand={autoExpand}
           controlsPosition="bottom-right"
           overlay={(shown) => <Legend nodes={shown} colorBy={colorBy} />}

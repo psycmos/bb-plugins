@@ -136,6 +136,9 @@ export type CanvasViewProps = {
   autoExpand?: (node: CanvasNode) => boolean;
   /** Tool calls and subagents as log lines with a duration bar (BBP-298). */
   stepsAsLog?: boolean;
+  /** Relations shown until the user turns them off (BBP-191: a crew's
+   *  communication lines belong to its picture, also while it is idle). */
+  relationsByDefault?: boolean;
   /** The breadcrumb sits atop the detail sidebar instead of beside the
    *  toolbar, so the toolbar never moves when a card is picked (BBP-298). */
   breadcrumbInSidebar?: boolean;
@@ -183,6 +186,7 @@ export function CanvasView({
   autoExpand,
   breadcrumbInSidebar = false,
   stepsAsLog,
+  relationsByDefault = false,
   controlsPosition,
   overlay,
   cornerAction,
@@ -207,7 +211,7 @@ export function CanvasView({
   // retry (clicking the card again) resolves, so the error never outlives
   // the state that caused it.
   const [failedLoads, setFailedLoads] = useState<ReadonlySet<string>>(new Set());
-  const [showRelations, setShowRelations] = useState(() => loadRelations(surface));
+  const [showRelations, setShowRelations] = useState(() => loadRelations(surface, relationsByDefault));
   // Only one frame editable at a time (BBP-166): entering a second frame's
   // edit mode without an `Escape` first is a no-op, not a silent switch.
   const [editingFrameId, setEditingFrameId] = useState<string | null>(null);
