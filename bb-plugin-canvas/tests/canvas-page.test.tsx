@@ -638,3 +638,28 @@ describe("the Canvas turn limit counts real turns only (BBP-298)", () => {
     expect(screen.queryByRole("button", { name: /^Done\./ })).toBeNull();
   });
 });
+
+describe("the Canvas shows crews from the crew plugin (BBP-190)", () => {
+  it("hangs a crew under its project and draws its member as its thread", async () => {
+    const panel = app.navPanels.find((entry) => entry.id === "canvas")!;
+    const layer = {
+      nodes: [
+        { id: "crew:f1", kind: "crew", label: "factory-1", parentId: "project:p1", meta: { crew: "factory-1" } },
+        { id: "member:lead@f1", kind: "member", label: "lead", parentId: "crew:f1", meta: { threadId: "t1", lead: true, activity: "idle" } },
+      ],
+      edges: [],
+      expanded: ["crew:f1"],
+      frames: [],
+      sources: ["crew"],
+    };
+    renderSlot(panel, { subPath: "" }, {
+      context: { projectId: null, threadId: null },
+      sdk: { subscribe: () => () => {}, projects: { list: async () => [{ id: "p1", name: "Shop" }] }, threads: { list: async () => [row("t1", "p1", "lead@factory-1"), row("t2", "p1", "Plain chat")] } } as never,
+      rpc: { extensionLayers: async () => layer } as never,
+    });
+    expect(await screen.findByRole("button", { name: /^factory-1 — / })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /^lead — lead/ })).toBeTruthy();
+    // One card for the lead: its own thread card gave way to the member.
+    expect(screen.queryByRole("button", { name: /^lead@factory-1 — / })).toBeNull();
+  });
+});

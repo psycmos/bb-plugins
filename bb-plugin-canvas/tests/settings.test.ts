@@ -5,7 +5,7 @@ import canvas from "../server";
 describe("the Canvas plugin settings", () => {
   it("defines window, thread limit and turns per thread with the overview defaults", () => {
     const define = vi.fn();
-    canvas({ settings: { define } } as never);
+    canvas({ settings: { define }, rpc: { register: vi.fn() } } as never);
     expect(define).toHaveBeenCalledWith(
       expect.objectContaining({
         windowHours: expect.objectContaining({ type: "number", default: 12 }),

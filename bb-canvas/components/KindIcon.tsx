@@ -90,6 +90,13 @@ function describeToolCall(meta?: Record<string, unknown>): string {
 }
 
 export function describeNode(kind: CanvasNodeKind, childCount: number, meta?: Record<string, unknown>): string {
+  if (kind === "thread" && meta?.member === true) {
+    // A crew member's thread (BBP-190): lead or not, what it is doing, provider.
+    const facts = [meta.lead === true ? "lead" : undefined, meta.activity ?? meta.state, meta.provider].filter(
+      (value): value is string => typeof value === "string" && value !== "",
+    );
+    return facts.length > 0 ? facts.join(" · ") : "Member";
+  }
   if (kind === "thread") {
     // As agent-graph: provider and branch; the state shows in the card's dot.
     const facts = (typeof meta?.branch === "string" && meta.branch !== "" ? [meta?.provider, meta.branch] : [meta?.state, meta?.provider]).filter(
@@ -100,7 +107,14 @@ export function describeNode(kind: CanvasNodeKind, childCount: number, meta?: Re
   if (kind === "tool-call") return describeToolCall(meta);
   // As agent-graph: the root and a project count what hangs under them.
   if (kind === "agents") return `${childCount} ${childCount === 1 ? "project" : "projects"}`;
-  if (kind === "project") return `${childCount} ${childCount === 1 ? "thread" : "threads"}`;
+  if (kind === "project") {
+    // Crews hang under a project too (BBP-190): counted apart from threads.
+    const crews = typeof meta?.crews === "number" ? meta.crews : 0;
+    const threads = childCount - crews;
+    const parts = [`${threads} ${threads === 1 ? "thread" : "threads"}`];
+    if (crews > 0) parts.push(`${crews} ${crews === 1 ? "crew" : "crews"}`);
+    return parts.join(" · ");
+  }
   // A message row is a turn's request or its reply, not another turn.
   if (kind === "turn" && meta?.from === "User") return "Request";
   if (kind === "turn" && meta?.from === "Agent") return "Reply";

@@ -5,7 +5,10 @@
 // `thread:changed` keeps status and loaded turns current. The same page is
 // the thread panel's "Canvas" tab, focused on that thread (BBP-277).
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useBbNavigate, useSdk, useSettings } from "@get-bb/plugin-sdk/app";
+import { useBbNavigate, useRpc, useSdk, useSettings } from "@get-bb/plugin-sdk/app";
+import type { extensionContract, ExtensionLayer } from "../lib/extensions";
+import { mergeExtensions } from "../lib/merge-extensions";
+import { filterActive } from "../vendor/bb-canvas/lib/active-filter";
 import { CanvasView } from "../vendor/bb-canvas/components/CanvasView";
 import { FocusUnavailable } from "../vendor/bb-canvas/components/FocusUnavailable";
 import { Legend } from "../vendor/bb-canvas/components/Legend";
@@ -129,6 +132,8 @@ export type CanvasPageProps = {
 };
 
 const ACTIVE_ONLY_KEY = "bb-canvas:active-only";
+/** How often the canvas re-reads the extensions' layers (crew does not push). */
+const EXTENSION_POLL_MS = 10_000;
 /** How long "Active only" keeps a thread after it last ran (BBP-298). */
 export const ACTIVE_GRACE_MS = 60_000;
 const RUNNING_STATES = new Set(["active", "pending", "starting"]);
@@ -283,10 +288,59 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     const timer = setTimeout(() => setGraceTick((tick) => tick + 1), ACTIVE_GRACE_MS);
     return () => clearTimeout(timer);
   }, [activeOnly, recentlyActive]);
-  const layer = useMemo(() => {
+  const threadTree = useMemo(() => {
     if (state === null || !("threads" in state)) return null;
     return overviewTree({ projects: state.projects, threads: state.threads, filter, focusThreadId: focus, now: Date.now(), activeOnly, recentlyActive });
   }, [state, filter, focus, activeOnly, recentlyActive]);
+
+  // BBP-190: crews from the crew plugin (and later graph runs), for the
+  // projects in view; re-read every EXTENSION_POLL_MS — crew does not push.
+  // Through a ref: a fresh `rpc` object per render must not restart the
+  // fetch — that looped forever (BBP-190).
+  const rpc = useRpc<typeof extensionContract>();
+  const rpcRef = useRef(rpc);
+  rpcRef.current = rpc;
+  const [extension, setExtension] = useState<ExtensionLayer | null>(null);
+  const [extensionTick, setExtensionTick] = useState(0);
+  const projectKey = useMemo(
+    () => (threadTree === null ? "" : threadTree.nodes.filter((node) => node.kind === "project").map((node) => node.id.slice("project:".length)).sort().join(",")),
+    [threadTree],
+  );
+  useEffect(() => {
+    if (projectKey === "") return;
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => rpcRef.current.call("extensionLayers", { projectIds: projectKey.split(",") }))
+      .then(
+        (answer) => {
+          if (!cancelled) setExtension(answer);
+        },
+        () => {},
+      );
+    const timer = setTimeout(() => setExtensionTick((tick) => tick + 1), EXTENSION_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [projectKey, extensionTick, listVersion]);
+  const layer = useMemo(() => {
+    if (threadTree === null) return null;
+    const facts = new Map(state !== null && "threads" in state ? state.threads.map((thread) => [thread.id, thread]) : []);
+    const merged = mergeExtensions(threadTree, extension, facts);
+    if (!activeOnly) return merged;
+    const keep = new Set([...recentlyActive].map(threadNodeId));
+    if (focus !== null) keep.add(threadNodeId(focus));
+    const nodes = filterActive(merged.nodes, keep);
+    const ids = new Set(nodes.map((node) => node.id));
+    return { ...merged, nodes, edges: merged.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)), expanded: merged.expanded.filter((id) => ids.has(id)) };
+  }, [threadTree, extension, activeOnly, recentlyActive, focus, state]);
+  // An extension's open crews arrive after the canvas mounted: they open once
+  // as they appear, like the newest turn does (BBP-190).
+  const extensionOpen = useMemo(() => new Set(layer?.expanded ?? []), [layer?.expanded.join(",")]);
+  const autoExpand = useMemo(() => {
+    const base = activeOnly ? openWhileActive : openNewestTurn;
+    return (node: CanvasNode) => base(node) || (node.kind === "crew" && extensionOpen.has(node.id));
+  }, [activeOnly, extensionOpen]);
   const focusIds = useMemo(() => (focus === null ? picked : [...new Set([threadNodeId(focus), ...picked])]), [focus, picked]);
 
   useEffect(
@@ -415,13 +469,14 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
         <CanvasView
           nodes={layer.nodes.filter((node) => visible.has(node.id))}
           edges={layer.edges}
+          frames={layer.frames}
           initialExpanded={new Set(layer.expanded)}
           toolbar={toolbar}
           halo
           colorBy={colorBy}
           breadcrumbInSidebar
           stepsAsLog
-          autoExpand={activeOnly ? openWhileActive : openNewestTurn}
+          autoExpand={autoExpand}
           controlsPosition="bottom-right"
           overlay={(shown) => <Legend nodes={shown} colorBy={colorBy} />}
           cornerAction={
