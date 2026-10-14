@@ -17,6 +17,10 @@ export type OverviewInput = {
   now: number;
   /** Last step: only active threads and the path to them (BBP-288). */
   activeOnly?: boolean;
+  /** Threads "Active only" keeps although they are idle right now: they ran
+   *  a moment ago. A thread goes idle between two turns for a blink, and
+   *  dropping it each time makes cards and edges flicker (BBP-298). */
+  recentlyActive?: ReadonlySet<string>;
 };
 
 export type Overview = ReturnType<typeof threadTree> & {
@@ -26,16 +30,20 @@ export type Overview = ReturnType<typeof threadTree> & {
   total: number;
 };
 
-export function overviewTree({ projects, threads, filter, focusThreadId, now, activeOnly = false }: OverviewInput): Overview {
+export function overviewTree({ projects, threads, filter, focusThreadId, now, activeOnly = false, recentlyActive = new Set() }: OverviewInput): Overview {
   const shown = filterThreads(threads, filter, now);
-  const focused =
-    focusThreadId !== null && !shown.some((thread) => thread.id === focusThreadId)
-      ? threads.find((thread) => thread.id === focusThreadId)
-      : undefined;
+  const shownIds = new Set(shown.map((thread) => thread.id));
+  // The focused thread, and under "Active only" every thread that ran a
+  // moment ago, stay even when the window or the limit would drop them.
+  const extraIds = new Set(activeOnly ? recentlyActive : []);
+  if (focusThreadId !== null) extraIds.add(focusThreadId);
+  const extra = threads.filter((thread) => extraIds.has(thread.id) && !shownIds.has(thread.id));
   const counts = { shown: shown.length, total: narrowThreads(threads, filter).length };
-  const tree = threadTree(projects, focused ? [...shown, focused] : shown);
+  const tree = threadTree(projects, [...shown, ...extra]);
   if (!activeOnly) return { ...tree, ...counts };
-  const nodes = filterActive(tree.nodes, new Set(focusThreadId !== null ? [threadNodeId(focusThreadId)] : []));
+  const keep = new Set([...recentlyActive].map(threadNodeId));
+  if (focusThreadId !== null) keep.add(threadNodeId(focusThreadId));
+  const nodes = filterActive(tree.nodes, keep);
   const ids = new Set(nodes.map((node) => node.id));
   return {
     nodes,

@@ -107,6 +107,9 @@ export type CanvasPageProps = {
 };
 
 const ACTIVE_ONLY_KEY = "bb-canvas:active-only";
+/** How long "Active only" keeps a thread after it last ran (BBP-298). */
+export const ACTIVE_GRACE_MS = 60_000;
+const RUNNING_STATES = new Set(["active", "pending", "starting"]);
 const COLOR_BY_KEY = "bb-canvas:color-by";
 
 function loadColorBy(): ColorMode {
@@ -208,10 +211,27 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     };
   }, [sdk]);
 
+  // When each thread was last seen running; "Active only" keeps it for
+  // ACTIVE_GRACE_MS after that, so the blink of idle between two turns
+  // neither drops its card nor its edges.
+  const lastRunning = useRef(new Map<string, number>());
+  const [graceTick, setGraceTick] = useState(0);
+  const recentlyActive = useMemo(() => {
+    const now = Date.now();
+    if (state !== null && "threads" in state)
+      for (const thread of state.threads) if (RUNNING_STATES.has(thread.status)) lastRunning.current.set(thread.id, now);
+    return new Set([...lastRunning.current].filter(([, at]) => now - at < ACTIVE_GRACE_MS).map(([id]) => id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, graceTick]);
+  useEffect(() => {
+    if (!activeOnly || recentlyActive.size === 0) return;
+    const timer = setTimeout(() => setGraceTick((tick) => tick + 1), ACTIVE_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [activeOnly, recentlyActive]);
   const layer = useMemo(() => {
     if (state === null || !("threads" in state)) return null;
-    return overviewTree({ projects: state.projects, threads: state.threads, filter, focusThreadId: focus, now: Date.now(), activeOnly });
-  }, [state, filter, focus, activeOnly]);
+    return overviewTree({ projects: state.projects, threads: state.threads, filter, focusThreadId: focus, now: Date.now(), activeOnly, recentlyActive });
+  }, [state, filter, focus, activeOnly, recentlyActive]);
   const focusIds = useMemo(() => (focus === null ? [] : [threadNodeId(focus)]), [focus]);
 
   useEffect(

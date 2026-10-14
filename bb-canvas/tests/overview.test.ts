@@ -117,3 +117,24 @@ describe("overviewSettings", () => {
     expect(overviewSettings(undefined)).toEqual({ windowMs: 12 * HOUR, limit: 20, turnsPerThread: 1 });
   });
 });
+
+// BBP-298: a thread is idle for a blink between two turns; "Active only"
+// must not drop it then, or its cards and edges flicker.
+describe("Active only keeps threads that ran a moment ago", () => {
+  const base = { projects: [{ id: "p1", name: "Shop" }], filter: DEFAULT_THREAD_FILTER, focusThreadId: null, now: NOW, activeOnly: true };
+
+  it("keeps a just-idle thread named in recentlyActive", () => {
+    const threads = [thread({ id: "a", status: "idle" }), thread({ id: "b", status: "idle" })];
+    expect(threadIds(overviewTree({ ...base, threads, recentlyActive: new Set(["a"]) }))).toEqual(["a"]);
+  });
+
+  it("keeps it even when its last update is outside the window", () => {
+    const threads = [thread({ id: "a", status: "idle", updatedAt: NOW - 48 * HOUR })];
+    expect(threadIds(overviewTree({ ...base, threads, recentlyActive: new Set(["a"]) }))).toEqual(["a"]);
+  });
+
+  it("drops an idle thread that did not run recently", () => {
+    const threads = [thread({ id: "a", status: "idle" })];
+    expect(threadIds(overviewTree({ ...base, threads }))).toEqual([]);
+  });
+});

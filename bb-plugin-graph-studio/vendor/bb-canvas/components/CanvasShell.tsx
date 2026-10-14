@@ -328,6 +328,14 @@ function toFlow(
       style: { width: placed.width, height: placed.height },
       width: placed.width,
       height: placed.height,
+      // Handles given up front, as React Flow allows for server rendering:
+      // measured ones are dropped whenever a live update rebuilds the node,
+      // and until they are measured again React Flow draws none of its edges
+      // — the flicker of BBP-298. Our edges draw their own path anyway.
+      handles: [
+        { id: null, type: "target", position: Position.Left, x: 0, y: placed.height / 2, width: 1, height: 1 },
+        { id: null, type: "source", position: Position.Right, x: placed.width, y: placed.height / 2, width: 1, height: 1 },
+      ],
       data: data as unknown as Record<string, unknown>,
       draggable: false,
       selectable: false,
