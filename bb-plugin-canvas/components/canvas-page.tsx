@@ -28,6 +28,7 @@ import {
 import type { CanvasEdge, CanvasNode } from "../vendor/bb-canvas/lib/types";
 import { ActivitySection } from "./activity-section";
 import { StepLog } from "./step-log";
+import { ThreadTabs } from "./thread-tabs";
 
 type State = { projects: ProjectLike[]; threads: readonly ThreadListItem[] } | { error: string } | null;
 type Sdk = ReturnType<typeof useSdk>;
@@ -382,6 +383,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
           toolbar={toolbar}
           halo
           colorBy={colorBy}
+          breadcrumbInSidebar
           autoExpand={activeOnly ? openWhileActive : undefined}
           controlsPosition="bottom-right"
           overlay={(shown) => <Legend nodes={shown} colorBy={colorBy} />}
@@ -410,16 +412,18 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
             const threadId = node.kind === "thread" ? node.meta?.threadId : undefined;
             if (typeof threadId !== "string") return null;
             return (
-              <>
-                <ActivitySection
-                  sdk={sdk}
-                  threadId={threadId}
-                  turnsPerThread={filter.turnsPerThread}
-                  version={reloads.get(node.id) ?? 0}
-                  onReveal={(nodeId, inCanvas) => revealEntry(threadId, nodeId, inCanvas)}
-                />
-                <StepLog sdk={sdk} threadId={threadId} version={reloads.get(node.id) ?? 0} onReveal={(nodeId) => revealEntry(threadId, nodeId, true)} />
-              </>
+              <ThreadTabs
+                turns={
+                  <ActivitySection
+                    sdk={sdk}
+                    threadId={threadId}
+                    turnsPerThread={filter.turnsPerThread}
+                    version={reloads.get(node.id) ?? 0}
+                    onReveal={(nodeId, inCanvas) => revealEntry(threadId, nodeId, inCanvas)}
+                  />
+                }
+                tools={<StepLog sdk={sdk} threadId={threadId} version={reloads.get(node.id) ?? 0} onReveal={(nodeId) => revealEntry(threadId, nodeId, true)} />}
+              />
             );
           }}
           reloadChildren={reloads}

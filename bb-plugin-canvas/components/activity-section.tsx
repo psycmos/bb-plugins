@@ -39,14 +39,14 @@ export function ActivitySection({ sdk, threadId, turnsPerThread, version, onReve
 
   if (loaded === null || loaded.threadId !== threadId) return null;
   const { list } = loaded;
+  // Turns newest first; a system row (context cleared, an error, …) stays in
+  // place among them, at the turn it happened after (BBP-298).
+  const entries = [...list.entries].reverse();
   return (
-    <section aria-label="Activity" className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Activity
-        <span className="font-normal normal-case tracking-normal">{list.header}</span>
-      </div>
-      <ul className="flex max-h-80 flex-col gap-0.5 overflow-y-auto">
-        {list.entries.map((entry) => (
+    <section aria-label="Turns" className="flex flex-col gap-2">
+      <div className="text-[11px] text-muted-foreground">{list.header}</div>
+      <ul className="flex flex-col gap-0.5">
+        {entries.map((entry) => (
           <li key={entry.id}>
             <button
               type="button"
@@ -55,7 +55,8 @@ export function ActivitySection({ sdk, threadId, turnsPerThread, version, onReve
               className={`flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary ${entry.inCanvas ? "text-foreground" : "text-muted-foreground opacity-70 hover:opacity-100"}`}
             >
               <KindIcon kind={entry.kind} />
-              <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+              <span className={`min-w-0 flex-1 truncate ${entry.kind === "turn" ? "" : "text-muted-foreground"}`}>{entry.label}</span>
+              {entry.detail ? <span className="shrink-0 text-[10px] text-muted-foreground">{entry.detail}</span> : null}
               {/* What the canvas shows carries a mark; the rest is one click away. */}
               {entry.inCanvas ? <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}
             </button>

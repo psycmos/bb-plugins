@@ -256,6 +256,8 @@ export type SidebarProps = {
   onFocusThis?: (id: string) => void;
   /** A page-owned section after the relations (BBP-291). */
   extra?: ReactNode;
+  /** Above everything else — the canvas's breadcrumb (BBP-298). */
+  header?: ReactNode;
 };
 
 const FOCUSABLE_KINDS = new Set<CanvasNode["kind"]>(["crew", "graph-run", "thread"]);
@@ -270,7 +272,7 @@ function numberMeta(node: CanvasNode, key: string): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-export function Sidebar({ node, onClose, onOpenThread, onOpenRun, onOpenCrew, onOpenAtRow, relations = [], onSelect, onFocusThis, extra }: SidebarProps) {
+export function Sidebar({ node, onClose, onOpenThread, onOpenRun, onOpenCrew, onOpenAtRow, relations = [], onSelect, onFocusThis, extra, header }: SidebarProps) {
   const { curated, details: allDetails, debug } = curateMeta(node.kind, node.meta);
   // A bundle's `titles` render as their own list below, not again in Details.
   const entries = stringList(node.meta?.titles);
@@ -378,6 +380,7 @@ export function Sidebar({ node, onClose, onOpenThread, onOpenRun, onOpenCrew, on
         className="bb-canvas-resize"
         style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 1 }}
       />
+      {header}
       <header style={{ display: "flex", alignItems: "start", gap: 10 }}>
         <span
           aria-hidden

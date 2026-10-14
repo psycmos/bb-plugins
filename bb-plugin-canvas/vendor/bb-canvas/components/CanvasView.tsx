@@ -134,6 +134,9 @@ export type CanvasViewProps = {
    *  running thread and turn down to its tool calls (BBP-298). Each node is
    *  opened once; one the user closes stays closed. Not persisted. */
   autoExpand?: (node: CanvasNode) => boolean;
+  /** The breadcrumb sits atop the detail sidebar instead of beside the
+   *  toolbar, so the toolbar never moves when a card is picked (BBP-298). */
+  breadcrumbInSidebar?: boolean;
   /** Where the zoom controls sit (agent-graph: bottom right). */
   controlsPosition?: "bottom-left" | "bottom-right";
   /** Drawn over the canvas's bottom-left corner — agent-graph's legend. A
@@ -176,6 +179,7 @@ export function CanvasView({
   halo = false,
   colorBy,
   autoExpand,
+  breadcrumbInSidebar = false,
   controlsPosition,
   overlay,
   cornerAction,
@@ -666,8 +670,8 @@ export function CanvasView({
     >
       {/* Wraps rather than overflows: in BB's slim panel (370px) the
           controls would otherwise run past the right edge (BBP-179). */}
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <Breadcrumb nodes={allNodes} selectedId={selectedId} onSelect={select} />
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: breadcrumbInSidebar ? "flex-start" : "space-between", gap: 8 }}>
+        {breadcrumbInSidebar ? null : <Breadcrumb nodes={allNodes} selectedId={selectedId} onSelect={select} />}
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, padding: "4px 8px" }}>
           {toolbar}
           <button type="button" onClick={collapseAll} style={TOOLBAR_BUTTON}>
@@ -750,6 +754,7 @@ export function CanvasView({
                   relations={hasRelations ? outgoingRelations(allEdges, selected.id, byId) : undefined}
                   onSelect={select}
                   extra={renderSidebarExtra?.(sidebarNode ?? selected)}
+                  header={breadcrumbInSidebar ? <Breadcrumb nodes={allNodes} selectedId={selectedId} onSelect={select} /> : undefined}
                 />
               )
             : null}

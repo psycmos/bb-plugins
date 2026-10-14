@@ -155,7 +155,8 @@ describe("the Canvas chat tab and thread panel action", () => {
     canvasPanel(sdk([row("t1", "p1", "First")]));
     fireEvent.click(await screen.findByRole("button", { name: /^First — / }));
     expect(chat()).toBeNull();
-    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Chat" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Graph" })).toBeNull();
     expect(screen.queryByText("Select a thread to see its chat.")).toBeNull();
   });
 
@@ -284,12 +285,11 @@ describe("the Canvas page live", () => {
     const { sdk, timeline, emit } = liveSdk(() => rows);
     canvasPanel(sdk, { overviewTurns: 10 });
     await open(/^Plain chat — /);
-    // Once for the canvas, once each for the selected thread's Activity list
-    // (BBP-291) and its Log (BBP-298).
-    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(3));
+    // Once for the canvas, once for the open "Turns" tab (BBP-291, BBP-298).
+    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(2));
     rows = [turnRow("turn-1"), { ...turnRow("turn-2"), summaryCount: 0 }];
     emit({ entity: "thread", id: "t1", changes: ["events-appended"] });
-    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(6));
+    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(4));
     await waitFor(() => expect(screen.getAllByRole("button", { name: /^Turn.* — / })).toHaveLength(2));
   });
 
@@ -472,7 +472,7 @@ describe("the Canvas keyboard jump", () => {
 // BBP-291: the selected thread's full Activity list in the canvas sidebar.
 describe("the Canvas Activity list", () => {
   const turns = (...ids: string[]) => ids.map((id) => ({ ...turnRow(id), summaryCount: 0 }));
-  const activity = () => screen.getByRole("region", { name: "Activity" });
+  const activity = () => screen.getByRole("region", { name: "Turns" });
 
   it("lists every turn of the selected thread and how many the canvas shows", async () => {
     const { sdk } = liveSdk(() => turns("turn-1", "turn-2", "turn-3"));
@@ -515,7 +515,7 @@ describe("the Canvas Activity list when the timeline fails", () => {
     canvasPanel(sdk);
     fireEvent.click(await screen.findByRole("button", { name: /^Plain chat — / }));
     await waitFor(() => expect(sdk.threads.timeline).toHaveBeenCalled());
-    expect(screen.queryByRole("region", { name: "Activity" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Turns" })).toBeNull();
     expect(screen.getByRole("button", { name: /^Other chat — / })).toBeTruthy();
   });
 
@@ -563,7 +563,8 @@ describe("the Canvas filters, auto-open and Log (BBP-298)", () => {
     const { sdk } = liveSdk(() => [turnRow("turn-1")]);
     canvasPanel(sdk);
     fireEvent.click(await screen.findByRole("button", { name: /^Plain chat — / }));
-    const log = await screen.findByRole("region", { name: "Log" });
+    fireEvent.click(await screen.findByRole("tab", { name: "Tool calls" }));
+    const log = await screen.findByRole("region", { name: "Tool calls" });
     expect(within(log).getByText(/Review the diff/)).toBeTruthy();
   });
 });
@@ -580,5 +581,26 @@ describe("the Canvas time window in the toolbar (BBP-298)", () => {
     expect(select.value).toBe(String(12 * 3_600_000));
     fireEvent.change(select, { target: { value: String(24 * 3_600_000) } });
     expect(await screen.findByRole("button", { name: /^Yesterday — / })).toBeTruthy();
+  });
+});
+
+describe("the Canvas sidebar layout (BBP-298)", () => {
+  it("puts the breadcrumb atop the sidebar, so the toolbar stays where it is", async () => {
+    const { sdk } = liveSdk(() => [turnRow("turn-1")]);
+    canvasPanel(sdk);
+    const projects = await screen.findByRole("button", { name: /^Projects/ });
+    fireEvent.click(screen.getByRole("button", { name: /^Plain chat — / }));
+    const aside = screen.getByRole("complementary", { name: "Details for Plain chat" });
+    expect(within(aside).getByRole("navigation")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Projects/ })).toBe(projects);
+  });
+
+  it("remembers the picked tab for the next thread", async () => {
+    const { sdk } = liveSdk(() => [turnRow("turn-1")]);
+    canvasPanel(sdk);
+    fireEvent.click(await screen.findByRole("button", { name: /^Plain chat — / }));
+    fireEvent.click(screen.getByRole("tab", { name: "Tool calls" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Other chat — / }));
+    expect(screen.getByRole("tab", { name: "Tool calls" }).getAttribute("aria-selected")).toBe("true");
   });
 });

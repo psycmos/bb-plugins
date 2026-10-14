@@ -5,7 +5,24 @@
 import { limitTurns } from "./thread-filter";
 import type { CanvasNode, CanvasNodeKind, CanvasStatus } from "./types";
 
-export type ActivityEntry = { id: string; label: string; kind: CanvasNodeKind; status?: CanvasStatus; inCanvas: boolean };
+export type ActivityEntry = {
+  id: string;
+  label: string;
+  kind: CanvasNodeKind;
+  status?: CanvasStatus;
+  inCanvas: boolean;
+  /** A turn's "5 steps · 2m 10s" (BBP-298). */
+  detail?: string;
+};
+
+function turnDetail(node: CanvasNode): string | undefined {
+  const steps = node.meta?.summaryCount;
+  const facts = [
+    typeof steps === "number" ? `${steps} ${steps === 1 ? "step" : "steps"}` : undefined,
+    typeof node.meta?.duration === "string" ? node.meta.duration : undefined,
+  ].filter((fact): fact is string => fact !== undefined);
+  return facts.length > 0 ? facts.join(" · ") : undefined;
+}
 
 export type ActivityList = { entries: ActivityEntry[]; header: string };
 
@@ -20,6 +37,7 @@ export function activityList(nodes: readonly CanvasNode[], threadNodeId: string,
     kind: node.kind,
     ...(node.status ? { status: node.status } : {}),
     inCanvas: node.kind !== "turn" || keptTurns.has(node.id),
+    ...(node.kind === "turn" && turnDetail(node) ? { detail: turnDetail(node) } : {}),
   }));
   const shown = entries.filter((entry) => entry.inCanvas).length;
   return { entries, header: `${shown} of ${entries.length} in canvas` };
