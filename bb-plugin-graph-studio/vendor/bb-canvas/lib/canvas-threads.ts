@@ -764,7 +764,10 @@ export function timelineToCanvas(
   };
   response.rows.forEach((row, index) => {
     if (row.kind !== "turn") {
-      if (!consumed.has(index)) pending.push(row);
+      // A reply belongs to its turn (the turn card carries it as its answer);
+      // as a card of its own it cluttered the thread (BBP-298).
+      const folded = row.kind === "conversation" && row.role === "assistant" && typeof row.turnId === "string" && turnKeys.has(row.turnId);
+      if (!consumed.has(index) && !folded) pending.push(row);
       return;
     }
     flush();

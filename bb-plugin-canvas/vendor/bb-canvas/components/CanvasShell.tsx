@@ -333,6 +333,12 @@ function toFlow(
       const ms = LOG_KINDS.has(node.kind) ? durationMs(node.meta?.duration) : null;
       if (ms !== null && node.parentId !== null) longest.set(node.parentId, Math.max(longest.get(node.parentId) ?? 0, ms));
     }
+  // Every ancestor of a running node is on the active path (BBP-298).
+  const activePath = new Set<string>();
+  for (const node of nodes) {
+    if (node.status !== "running") continue;
+    for (let id = node.parentId; id !== null && byId.has(id) && !activePath.has(id); id = byId.get(id)!.parentId) activePath.add(id);
+  }
   const flowNodes: Node[] = layout.positions.map((placed) => {
     const node = byId.get(placed.id)!;
     const data: NodeCardProps = {
@@ -346,6 +352,7 @@ function toFlow(
       onClick: onSelect ? (event: ReactMouseEvent<HTMLButtonElement>) => onSelect(node.id, event) : undefined,
       dimmed: dimmedIds.has(node.id),
       loadFailed: failedLoads.has(node.id),
+      activePath: activePath.has(node.id),
       ...(colorBy ? { accent: accentOf(node, colorBy) } : {}),
       ...(stepsAsLog && LOG_KINDS.has(node.kind) ? { log: logOf(node, longest.get(node.parentId ?? "") ?? 0) } : {}),
       expander: expandable.has(node.id)

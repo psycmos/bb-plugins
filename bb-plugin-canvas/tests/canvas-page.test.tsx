@@ -260,12 +260,11 @@ describe("the Canvas page's turns", () => {
     expect(timeline).not.toHaveBeenCalled();
   });
 
-  it("loads a thread's turns on opening it, and a turn's subagent on opening the turn", async () => {
+  it("loads a thread's turns on opening it, and opens its newest turn by itself (BBP-298)", async () => {
     const { sdk, timeline, timelineTurnSummaryDetails } = liveSdk(() => [turnRow("turn-1")]);
     canvasPanel(sdk);
     await open(/^Plain chat — /);
     await waitFor(() => expect(timeline).toHaveBeenCalledWith({ threadId: "t1" }));
-    await open(/^(Turn|Review)/);
     expect(await screen.findByRole("button", { name: /^Agent: Review the diff — / })).toBeTruthy();
     expect(timelineTurnSummaryDetails).toHaveBeenCalled();
   });
@@ -347,14 +346,13 @@ describe("the Canvas overview window", () => {
 // S16b (BBP-286): a real turn's steps — command, MCP tool, file read and a
 // subagent from `timelineTurnSummaryDetails` — are reachable under the turn.
 describe("the Canvas page's tool calls under a turn", () => {
-  it("shows a real turn's tool calls and its subagent once the turn is opened", async () => {
+  it("shows a real turn's tool calls and its subagent, the newest turn open by itself", async () => {
     const real = (await import("../../bb-canvas/fixtures/real-timeline-rows.json")).default;
     const steps = [real.workToolMcpCall, real.workCommandBash, real.workFileRead, real.workDelegationSubagent];
     const { sdk } = liveSdk(() => [real.turnWithManySteps]);
     sdk.threads.timelineTurnSummaryDetails.mockImplementation(async () => ({ rows: steps }) as never);
     canvasPanel(sdk);
     await open(/^Plain chat — /);
-    await open(/^Turn/);
     expect(await screen.findByRole("button", { name: /^Agent: / })).toBeTruthy();
     for (const label of [String(real.workToolMcpCall.toolName), String(real.workFileRead.path).split("/").pop()!]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} — `) })).toBeTruthy();
@@ -370,7 +368,6 @@ describe("the Canvas page's +N earlier steps (BBP-286)", () => {
     sdk.threads.timelineTurnSummaryDetails.mockImplementation(async () => ({ rows: steps }) as never);
     canvasPanel(sdk);
     await open(/^Plain chat — /);
-    await open(/^Turn/);
     expect(await screen.findByRole("button", { name: /^tool12 — / })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^tool2 — / })).toBeNull();
     await open(/^\+2 earlier/);
@@ -614,5 +611,30 @@ describe("the Canvas turn limit takes a dropped turn's steps along (BBP-298)", (
     await open(/^Plain chat — /);
     await waitFor(() => expect(screen.getAllByRole("button", { name: /^Turn.* — / })).toHaveLength(1));
     expect(screen.queryByRole("button", { name: /echo old/ })).toBeNull();
+  });
+});
+
+describe("the Canvas picks up threads started after it opened (BBP-298)", () => {
+  it("reloads the list when an event names a thread it does not know", async () => {
+    const { sdk, emit } = liveSdk(() => []);
+    let threads = [row("t1", "p1", "Plain chat")];
+    sdk.threads.list = async () => threads;
+    canvasPanel(sdk);
+    await screen.findByRole("button", { name: /^Plain chat — / });
+    threads = [...threads, row("t9", "p1", "Brand new", { status: "active" })];
+    emit({ entity: "thread", id: "t9", changes: ["created"] });
+    expect(await screen.findByRole("button", { name: /^Brand new — / }, { timeout: 3000 })).toBeTruthy();
+  });
+});
+
+describe("the Canvas turn limit counts real turns only (BBP-298)", () => {
+  it("keeps the newest turn and opens it, even when a reply row comes after it", async () => {
+    const reply = { id: "a1", kind: "conversation", role: "assistant", text: "Done.", turnId: "turn-2" };
+    const { sdk, timelineTurnSummaryDetails } = liveSdk(() => [turnRow("turn-1"), turnRow("turn-2"), reply]);
+    canvasPanel(sdk, { overviewTurns: 1 });
+    await open(/^Plain chat — /);
+    await waitFor(() => expect(timelineTurnSummaryDetails).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: /Review the diff/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Done\./ })).toBeNull();
   });
 });

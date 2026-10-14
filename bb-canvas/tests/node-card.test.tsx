@@ -226,3 +226,15 @@ describe("NodeCard as a log line (BBP-298)", () => {
     expect(screen.getByRole("button").getAttribute("style")).toContain("dashed");
   });
 });
+
+describe("NodeCard on the active path (BBP-298)", () => {
+  it("borders an idle ancestor of running work dashed blue", () => {
+    render(<NodeCard label="bb-plugins" kind="project" activePath />);
+    expect(screen.getByRole("button").getAttribute("style")).toContain("dashed");
+  });
+
+  it("keeps a failed card red even on the active path", () => {
+    render(<NodeCard label="impl" kind="thread" status="failed" activePath />);
+    expect(screen.getByRole("button").style.border).toContain("var(--destructive)");
+  });
+});

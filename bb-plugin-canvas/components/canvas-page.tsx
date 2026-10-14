@@ -47,6 +47,10 @@ function turnFirstLinePort(sdk: Sdk): TurnFirstLinePort {
   return { turnDetails: (turnId, threadId, start, end) => turnDetails(sdk, threadId, turnId, start, end) };
 }
 
+/** A turn of the thread, not a request or reply row drawn as one. */
+const isRealTurn = (node: CanvasNode): boolean =>
+  node.kind === "turn" && (typeof node.meta?.summaryCount === "number" || node.meta?.live === true);
+
 /** Keeps only the newest `limit` turn nodes, plus the `pinned` ones (and the
  *  edges among what is left). */
 function limitTurnNodes<R extends { nodes: CanvasNode[]; edges?: CanvasEdge[] }>(
@@ -54,13 +58,22 @@ function limitTurnNodes<R extends { nodes: CanvasNode[]; edges?: CanvasEdge[] }>
   limit: number | null,
   pinned: ReadonlySet<string> = new Set(),
 ): R {
-  const kept = new Set(limitTurns(result.nodes.filter((node) => node.kind === "turn"), limit).map((node) => node.id));
+  // Only real turns count — a request or reply row is drawn as a turn card
+  // too, and counting those dropped the turn that holds the tool calls,
+  // and its tool calls with it (BBP-298).
+  const turns = result.nodes.filter(isRealTurn);
+  const kept = new Set(limitTurns(turns, limit).map((node) => node.id));
   for (const id of pinned) kept.add(id);
   // A dropped turn takes its steps with it — they would lay out as loose
   // roots otherwise (BBP-298). Children follow their parent in the list.
-  const dropped = new Set(result.nodes.filter((node) => node.kind === "turn" && !kept.has(node.id)).map((node) => node.id));
+  const dropped = new Set(turns.filter((node) => !kept.has(node.id)).map((node) => node.id));
   for (const node of result.nodes) if (node.parentId !== null && dropped.has(node.parentId)) dropped.add(node.id);
-  const nodes = result.nodes.filter((node) => !dropped.has(node.id));
+  // The newest turn opens by itself, as in agent-graph: its tool calls show
+  // as soon as the thread is opened (BBP-298).
+  const newest = turns.filter((node) => kept.has(node.id)).at(-1)?.id;
+  const nodes = result.nodes
+    .filter((node) => !dropped.has(node.id))
+    .map((node) => (node.id === newest ? { ...node, meta: { ...node.meta, newest: true } } : node));
   const ids = new Set(nodes.map((node) => node.id));
   const edges = result.edges?.filter((edge) => ids.has(edge.from) && ids.has(edge.to));
   return { ...result, nodes, ...(edges ? { edges } : {}) };
@@ -141,7 +154,10 @@ function saveColorBy(value: ColorMode) {
  *  to their tool calls (BBP-298). Stable, so the canvas does not re-run it on
  *  every render. */
 const openWhileActive = (node: CanvasNode): boolean =>
-  (node.kind === "thread" || node.kind === "turn" || node.kind === "subagent") && node.status === "running";
+  ((node.kind === "thread" || node.kind === "turn" || node.kind === "subagent") && node.status === "running") || openNewestTurn(node);
+
+/** Always: a thread's newest turn opens as soon as the thread is opened. */
+const openNewestTurn = (node: CanvasNode): boolean => node.kind === "turn" && node.meta?.newest === true;
 
 const HOUR = 3_600_000;
 
@@ -169,6 +185,10 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
   const sdk = useSdk();
   const navigate = useBbNavigate();
   const [state, setState] = useState<State>(null);
+  // Bumped to reload the thread list; `known` holds the ids it returned.
+  const [listVersion, setListVersion] = useState(0);
+  const known = useRef(new Set<string>());
+  const refetch = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focus, setFocus] = useState<string | null>(() => focusThreadId ?? focusFromSubPath(subPath));
   // The overview window comes from the plugin settings (BBP-287), which may
   // arrive after the first render.
@@ -233,7 +253,9 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     );
     Promise.all([projects, sdk.threads.list()]).then(
       ([projectList, threads]) => {
-        if (!cancelled) setState({ projects: projectList, threads: threads as unknown as readonly ThreadListItem[] });
+        if (cancelled) return;
+        setState({ projects: projectList, threads: threads as unknown as readonly ThreadListItem[] });
+        known.current = new Set(threads.map((thread) => thread.id));
       },
       (cause: unknown) => {
         if (!cancelled) setState({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -242,7 +264,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     return () => {
       cancelled = true;
     };
-  }, [sdk]);
+  }, [sdk, listVersion]);
 
   // When each thread was last seen running; "Active only" keeps it for
   // ACTIVE_GRACE_MS after that, so the blink of idle between two turns
@@ -274,6 +296,16 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
         callback: (event) => {
           const threadId = event.id;
           if (!threadId) return;
+          // A thread the list does not know yet was just started: reload the
+          // list (once per burst), or it never shows up (BBP-298).
+          if (!known.current.has(threadId)) {
+            known.current.add(threadId);
+            if (refetch.current === null)
+              refetch.current = setTimeout(() => {
+                refetch.current = null;
+                setListVersion((version) => version + 1);
+              }, 400);
+          }
           const status = eventStatus(event);
           if (status)
             setState((prev) =>
@@ -389,7 +421,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
           colorBy={colorBy}
           breadcrumbInSidebar
           stepsAsLog
-          autoExpand={activeOnly ? openWhileActive : undefined}
+          autoExpand={activeOnly ? openWhileActive : openNewestTurn}
           controlsPosition="bottom-right"
           overlay={(shown) => <Legend nodes={shown} colorBy={colorBy} />}
           cornerAction={

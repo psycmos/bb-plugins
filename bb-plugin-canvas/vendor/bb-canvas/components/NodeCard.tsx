@@ -42,6 +42,9 @@ export type NodeCardProps = {
    *  tag, the command in monospace, its result on the right and a bar under
    *  it as long as the step took, relative to its siblings. */
   log?: { tag: string; color: string; detail?: string; bar?: number };
+  /** On the way to running work (an ancestor of it): drawn like running —
+   *  dashed blue border — without being running itself (BBP-298). */
+  activePath?: boolean;
 };
 
 const AMBER = "var(--warning)";
@@ -128,12 +131,18 @@ export function NodeCard({
   loadFailed = false,
   accent,
   log,
+  activePath = false,
 }: NodeCardProps) {
   ensurePulseStyles();
   if (log) return <LogRow label={label} status={status} selected={selected} halo={halo} onClick={onClick} dimmed={dimmed} expander={expander} log={log} />;
   const tier: Tier = kind !== undefined ? TIER_OF[kind] : "card";
   const typo = TIER_TYPOGRAPHY[tier];
-  const { border, pulse, background, radius } = visualFor(status, tier, loadFailed);
+  const own = visualFor(status, tier, loadFailed);
+  // An ancestor of running work borders like it; its own failure or wait wins.
+  const { border, pulse, background, radius } =
+    activePath && (status === undefined || status === "idle" || status === "done") && !loadFailed
+      ? { ...own, border: "1.5px dashed var(--primary)" }
+      : own;
   const errorText = loadFailed ? "Could not load activity" : undefined;
   const effectiveSubtitle = errorText ?? subtitle;
   // Group: the counter rides beside the title, no second line — 28px has
