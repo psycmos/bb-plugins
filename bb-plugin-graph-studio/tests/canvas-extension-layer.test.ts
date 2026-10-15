@@ -133,3 +133,40 @@ describe("Form B for big flows (BBP-303)", () => {
     expect(cards).toHaveLength(2 + 3 + 1);
   });
 });
+
+describe("decisions in the Canvas flow (BBP-303)", () => {
+  it("marks a first-match step as a decision and strikes the exit it did not take", () => {
+    const run = {
+      id: "rd",
+      projectId: "p1",
+      threadId: null,
+      status: "running",
+      createdAt: 1,
+      graph: {
+        id: "g",
+        name: "G",
+        nodes: [
+          { id: "check", label: "Check", kind: "agent", routing: "first" },
+          { id: "fix", label: "Fix", kind: "agent" },
+          { id: "ship", label: "Ship", kind: "agent" },
+        ],
+        edges: [
+          { from: "__start__", to: "check" },
+          { from: "check", to: "fix", when: { source: "output", key: "", op: "contains", value: "FAIL" } },
+          { from: "check", to: "ship" },
+          { from: "fix", to: "__end__" },
+          { from: "ship", to: "__end__" },
+        ],
+      },
+      nodeRuns: [
+        { nodeId: "check", attempt: 1, status: "done", childThreadId: "tc" },
+        { nodeId: "ship", attempt: 1, status: "running", childThreadId: "ts" },
+      ],
+    } as never;
+    const layer = canvasExtensionLayer("p1", [run]);
+    expect(layer.nodes.find((n) => n.id === "thread:tc")!.meta).toMatchObject({ decision: true });
+    const exits = layer.edges.filter((e) => e.from === "thread:tc");
+    expect(exits.find((e) => e.to === "thread:ts")!.state).toBeUndefined();
+    expect(exits.find((e) => e.to.endsWith(":fix"))!.state).toBe("skipped");
+  });
+});

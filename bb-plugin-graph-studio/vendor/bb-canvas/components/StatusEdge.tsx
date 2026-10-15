@@ -12,6 +12,7 @@
 // focus.
 import { useState } from "react";
 import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from "@xyflow/react";
+import type { Junction } from "../lib/layout";
 import type { CanvasEdgeEmphasis, CanvasEdgeState, CanvasEdgeVariant } from "../lib/types";
 
 export type StatusEdgeData = {
@@ -21,6 +22,7 @@ export type StatusEdgeData = {
   state?: CanvasEdgeState;
   relation?: boolean;
   emphasis?: CanvasEdgeEmphasis;
+  junctions?: readonly Junction[];
 };
 
 export function relationLabelVisible(data: StatusEdgeData, hovered: boolean): boolean {
@@ -57,6 +59,7 @@ function ensureNowStyles(): void {
 function strokeFor(state: CanvasEdgeState | undefined, selected: boolean | undefined): { stroke: string; strokeWidth: number } {
   if (state === "now") return { stroke: "var(--primary)", strokeWidth: 2 };
   if (state === "needs") return { stroke: "#f59e0b", strokeWidth: 2 };
+  if (state === "skipped") return { stroke: "var(--muted-foreground)", strokeWidth: 1.25 };
   if (state === "selected-path") return { stroke: "var(--ring)", strokeWidth: 1.75 };
   return { stroke: selected ? "var(--primary)" : "var(--border)", strokeWidth: selected ? 2 : 1.5 };
 }
@@ -81,10 +84,15 @@ export function StatusEdge({ data, selected }: StatusEdgeProps) {
         style={{
           stroke,
           strokeWidth,
-          strokeDasharray: data.state ? undefined : STROKE_DASHARRAY[data.variant],
+          strokeDasharray: data.state === "skipped" ? "3 4" : data.state ? undefined : STROKE_DASHARRAY[data.variant],
+          opacity: data.state === "skipped" ? 0.55 : undefined,
           fill: "none",
         }}
       />
+      {data.state === "skipped" ? <Strike x={labelX} y={labelY} /> : null}
+      {(data.junctions ?? []).map((junction) => (
+        <JunctionMark key={`${junction.kind}:${junction.x}:${junction.y}`} junction={junction} />
+      ))}
       {data.label && relationLabelVisible(data, hovered) ? (
         <EdgeLabelRenderer>
           <div
@@ -105,6 +113,19 @@ export function StatusEdge({ data, selected }: StatusEdgeProps) {
       ) : null}
     </g>
   );
+}
+
+/** A split or join: a small ring; a decision: a diamond (BBP-303). */
+function JunctionMark({ junction }: { junction: Junction }) {
+  const { x, y, kind } = junction;
+  const style = { fill: "var(--card)", stroke: "var(--muted-foreground)", strokeWidth: 1.5 };
+  if (kind === "decision") return <path d={`M ${x} ${y - 5} L ${x + 5} ${y} L ${x} ${y + 5} L ${x - 5} ${y} Z`} style={style} />;
+  return <circle cx={x} cy={y} r={3.5} style={style} />;
+}
+
+/** The mark across an exit the run did not take. */
+function Strike({ x, y }: { x: number; y: number }) {
+  return <path d={`M ${x - 4} ${y + 5} L ${x + 4} ${y - 5}`} style={{ stroke: "var(--muted-foreground)", strokeWidth: 1.5, fill: "none" }} />;
 }
 
 /** The path's own midpoint, read from its end points — exact enough for a

@@ -281,6 +281,7 @@ export function toFlowEdges(placedEdges: readonly PlacedEdge[]): Edge[] {
       state: placed.state,
       relation: placed.relation,
       emphasis: placed.emphasis,
+      junctions: placed.junctions,
     } satisfies StatusEdgeData as unknown as Record<string, unknown>,
     ...(placed.relation ? { zIndex: 0 } : {}),
   }));

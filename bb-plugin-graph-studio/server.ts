@@ -159,6 +159,8 @@ const canvasEdgeSchema = z.object({
   // never sees relations — zod drops unknown keys.
   relation: z.boolean().optional(),
   emphasis: z.enum(["highlight", "dim"]).optional(),
+  // Running, waiting or not-taken exits (BBP-303); zod would drop it otherwise.
+  state: z.enum(["now", "needs", "selected-path", "skipped"]).optional(),
   links: z.array(z.object({ from: z.string(), to: z.string(), kind: z.string() })).readonly().optional(),
 });
 const canvasLayerSchema = z.object({

@@ -388,6 +388,22 @@ describe("flow layout for graph runs (BBP-303)", () => {
     expect(at(layout, "join").x).toBeGreaterThan(at(layout, "a").x);
   });
 
+  it("marks where the flow splits and joins, a decision as its own kind, a not-taken exit skipped", () => {
+    const layout = layoutTree(nodes, new Set(["run"]), edges);
+    const edge = (from: string, to: string) => layout.edges.find((e) => e.from === from && e.to === to)!;
+    expect(edge("plan", "a").junctions).toEqual([expect.objectContaining({ kind: "split" })]);
+    expect(edge("a", "join").junctions).toEqual([expect.objectContaining({ kind: "join" })]);
+    expect(edge("plan", "a").junctions![0]).toEqual(edge("plan", "b").junctions![0]);
+    const decided = layoutTree(
+      nodes.map((n) => (n.id === "plan" ? { ...n, meta: { ...n.meta, decision: true } } : n)),
+      new Set(["run"]),
+      edges.map((e) => (e.to === "b" ? { ...e, state: "skipped" as const } : e)),
+    );
+    const exit = decided.edges.find((e) => e.from === "plan" && e.to === "b")!;
+    expect(exit.junctions![0]!.kind).toBe("decision");
+    expect(exit.state).toBe("skipped");
+  });
+
   it("joins the steps with step edges and hangs only the first layer off the run", () => {
     const layout = layoutTree(nodes, new Set(["run"]), edges);
     expect(layout.edges.filter((e) => e.from === "run").map((e) => e.to)).toEqual(["plan"]);

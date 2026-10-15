@@ -58,7 +58,15 @@ export type PlacedEdge = {
   state?: CanvasEdgeState;
   relation?: boolean;
   emphasis?: CanvasEdge["emphasis"];
+  /** Junction points the edge passes (BBP-303): where a flow splits, decides
+   *  or joins, so structure reads without cards of its own. */
+  junctions?: readonly Junction[];
 };
+
+export type Junction = { x: number; y: number; kind: "split" | "decision" | "join" };
+
+/** How far from the card a split or join point sits. */
+const JUNCTION_OFFSET = 12;
 
 /** A frame's bounding box: the padded rectangle around its member cards. */
 export type PlacedFrame = {
@@ -334,11 +342,19 @@ export function layoutTree(
     return [flowEdge(placed.get(parentId)!, placed.get(id)!, byId.get(id)!, onSelectedPath.has(id), runningBranch.has(id), needsBranch.has(id))];
   });
 
+  const stepOuts = new Map<string, number>();
+  const stepIns = new Map<string, number>();
+  for (const edge of edges) {
+    if (edge.variant !== "step" || !placed.has(edge.from) || !placed.has(edge.to)) continue;
+    stepOuts.set(edge.from, (stepOuts.get(edge.from) ?? 0) + 1);
+    stepIns.set(edge.to, (stepIns.get(edge.to) ?? 0) + 1);
+  }
+  const joints = { outs: stepOuts, ins: stepIns };
   const declaredEdges: PlacedEdge[] = edges.flatMap((edge) => {
     const from = placed.get(edge.from);
     const to = placed.get(edge.to);
     if (!from || !to) return [];
-    return [edge.variant === "back" ? backEdge(from, to, edge) : edge.variant === "step" ? stepEdge(from, to, edge, runningBranch, byId) : messageEdge(from, to, edge)];
+    return [edge.variant === "back" ? backEdge(from, to, edge) : edge.variant === "step" ? stepEdge(from, to, edge, runningBranch, byId, joints) : messageEdge(from, to, edge)];
   });
 
   // Derived from the actual placed extents rather than a per-column/per-row
@@ -431,23 +447,46 @@ function flowEdge(from: PlacedNode, to: PlacedNode, toNode: CanvasNode, onSelect
 
 /** One step of a flow to the next (BBP-303): right edge to left edge. Dashed
  *  blue while the target runs. */
-function stepEdge(from: PlacedNode, to: PlacedNode, edge: CanvasEdge, running: ReadonlySet<string>, byId: ReadonlyMap<string, CanvasNode>): PlacedEdge {
-  const fromX = from.x + from.width;
+function stepEdge(
+  from: PlacedNode,
+  to: PlacedNode,
+  edge: CanvasEdge,
+  running: ReadonlySet<string>,
+  byId: ReadonlyMap<string, CanvasNode>,
+  joints: { outs: ReadonlyMap<string, number>; ins: ReadonlyMap<string, number> },
+): PlacedEdge {
   const fromY = from.y + from.height / 2;
-  const toX = to.x;
   const toY = to.y + to.height / 2;
-  const midX = (fromX + toX) / 2;
+  // Every exit of a split leaves through one point, every way into a join
+  // arrives through one: the point is the structure, drawn once per edge.
+  const splits = (joints.outs.get(from.id) ?? 0) > 1;
+  const joins = (joints.ins.get(to.id) ?? 0) > 1;
+  const startX = from.x + from.width + (splits ? JUNCTION_OFFSET : 0);
+  const endX = to.x - (joins ? JUNCTION_OFFSET : 0);
+  const midX = (startX + endX) / 2;
+  const junctions: Junction[] = [];
+  if (splits) junctions.push({ x: startX, y: fromY, kind: byId.get(from.id)?.meta?.decision === true ? "decision" : "split" });
+  if (joins) junctions.push({ x: endX, y: toY, kind: "join" });
+  const path = [
+    splits ? `M ${from.x + from.width} ${fromY} L ${startX} ${fromY}` : `M ${startX} ${fromY}`,
+    `C ${midX} ${fromY}, ${midX} ${toY}, ${endX} ${toY}`,
+    joins ? `L ${to.x} ${toY}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   const target = byId.get(to.id);
-  const state: CanvasEdgeState | undefined = target?.meta?.needsYou || target?.meta?.waitsForYou ? "needs" : target?.status === "running" || running.has(to.id) ? "now" : edge.state;
+  const state: CanvasEdgeState | undefined =
+    edge.state === "skipped" ? "skipped" : target?.meta?.needsYou || target?.meta?.waitsForYou ? "needs" : target?.status === "running" || running.has(to.id) ? "now" : edge.state;
   return {
     from: from.id,
     to: to.id,
     variant: "step",
-    path: `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`,
+    path,
     // No label: the gap between two steps holds none without covering a card.
     label: "",
     isBack: false,
     ...(state ? { state } : {}),
+    ...(junctions.length ? { junctions } : {}),
   };
 }
 

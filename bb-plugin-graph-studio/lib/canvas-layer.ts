@@ -211,6 +211,21 @@ export function flowSteps(layer: CanvasLayer, run: CanvasRun, runId: string): vo
       },
     });
   }
+  // A decision: a step that takes the first matching of several exits. Once
+  // it has gone one way, the exits it did not take are drawn struck through.
+  const exits = new Map<string, string[]>();
+  for (const edge of layout.edges) {
+    if (edge.isBack || pseudo.has(edge.from) || pseudo.has(edge.to)) continue;
+    exits.set(edge.from, [...(exits.get(edge.from) ?? []), edge.to]);
+  }
+  const ran = (nodeId: string) => latest.has(nodeId);
+  const decisions = new Set(
+    run.graph.nodes.filter((node) => (node.routing ?? "first") === "first" && (exits.get(node.id)?.length ?? 0) > 1).map((node) => node.id),
+  );
+  for (const nodeId of decisions) {
+    const card = layer.nodes.find((node) => node.id === idOf.get(nodeId));
+    if (card) card.meta = { ...card.meta, decision: true };
+  }
   for (const edge of layout.edges) {
     if (pseudo.has(edge.from) || pseudo.has(edge.to)) continue;
     const from = idOf.get(edge.from);
@@ -218,6 +233,8 @@ export function flowSteps(layer: CanvasLayer, run: CanvasRun, runId: string): vo
     if (!from || !to) continue;
     const step: CanvasEdge = { from, to, variant: edge.isBack ? "back" : "step" };
     if (edge.label) step.label = edge.label;
+    const decided = !edge.isBack && decisions.has(edge.from) && (exits.get(edge.from) ?? []).some((other) => other !== edge.to && ran(other));
+    if (decided && !ran(edge.to)) step.state = "skipped";
     layer.edges.push(step);
   }
   foldFlow(layer, runId);

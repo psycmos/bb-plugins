@@ -55,7 +55,8 @@ export type CanvasEdgeVariant = "flow" | "back" | "message" | "step";
  *  `"selected-path"` when both would apply. A `message` edge never carries
  *  this: that is BBP-97's. */
 /** "needs": on the way to something that waits for the human (BBP-303). */
-export type CanvasEdgeState = "now" | "needs" | "selected-path";
+/** `skipped`: a decision's exit the run did not take (BBP-303). */
+export type CanvasEdgeState = "now" | "needs" | "selected-path" | "skipped";
 
 /**
  * An edge beyond the tree itself: `layoutTree` draws the parent/child line for
