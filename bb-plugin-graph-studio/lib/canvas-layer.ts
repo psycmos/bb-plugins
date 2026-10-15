@@ -220,6 +220,117 @@ export function flowSteps(layer: CanvasLayer, run: CanvasRun, runId: string): vo
     if (edge.label) step.label = edge.label;
     layer.edges.push(step);
   }
+  foldFlow(layer, runId);
+}
+
+/** Lanes a layer shows before the rest fold into "+N" (Form B). */
+export const MAX_LANES = 4;
+/** A branch longer than this makes a branched flow big (Form B). */
+export const LONG_BRANCH = 3;
+
+const RANK: Record<string, number> = { running: 0, waiting: 0, failed: 1, done: 2 };
+
+/**
+ * BBP-303 Form B: a big flow — more than MAX_LANES parallel lanes, or a
+ * branch longer than LONG_BRANCH next to another — draws each straight
+ * branch as one card (its current step, "k/n steps") and folds lanes beyond
+ * MAX_LANES into one "+N" card. Small flows stay one card per step (Form A).
+ */
+export function foldFlow(layer: CanvasLayer, runId: string): void {
+  const steps = layer.nodes.filter((node) => node.parentId === runId && node.meta?.step === true);
+  const ids = new Set(steps.map((node) => node.id));
+  const forward = layer.edges.filter((edge) => edge.variant === "step" && ids.has(edge.from) && ids.has(edge.to));
+  const outs = new Map<string, string[]>();
+  const ins = new Map<string, string[]>();
+  for (const edge of forward) {
+    outs.set(edge.from, [...(outs.get(edge.from) ?? []), edge.to]);
+    ins.set(edge.to, [...(ins.get(edge.to) ?? []), edge.from]);
+  }
+  // A chain continues through a node with one way in from a node with one way out.
+  const continues = (id: string) => (ins.get(id) ?? []).length === 1 && (outs.get(ins.get(id)![0]!) ?? []).length === 1;
+  const chains: string[][] = [];
+  for (const node of steps) {
+    if (continues(node.id)) continue;
+    const chain = [node.id];
+    for (let next = outs.get(node.id) ?? []; next.length === 1 && continues(next[0]!); next = outs.get(chain.at(-1)!) ?? []) chain.push(next[0]!);
+    chains.push(chain);
+  }
+  const lanesPerLayer = new Map<unknown, number>();
+  for (const node of steps) lanesPerLayer.set(node.meta?.layer, (lanesPerLayer.get(node.meta?.layer) ?? 0) + 1);
+  const widest = Math.max(0, ...lanesPerLayer.values());
+  const branched = widest > 1;
+  const big = widest > MAX_LANES || (branched && chains.some((chain) => chain.length > LONG_BRANCH));
+  if (!big) return;
+
+  const byId = new Map(steps.map((node) => [node.id, node]));
+  const rename = new Map<string, string>();
+  const drop = new Set<string>();
+  for (const chain of chains) {
+    if (chain.length < 2) continue;
+    const members = chain.map((id) => byId.get(id)!);
+    // The card shows the step that matters now: running or waiting, else the last that ran.
+    const ran = members.filter((node) => node.status !== undefined);
+    const shown = [...ran].sort((a, b) => (RANK[a.status!] ?? 3) - (RANK[b.status!] ?? 3))[0] ?? ran.at(-1) ?? members[0]!;
+    const done = members.filter((node) => node.status === "done").length;
+    shown.meta = { ...shown.meta, layer: members[0]!.meta?.layer, lane: members[0]!.meta?.lane, branch: { done, total: chain.length, steps: members.map((node) => node.label) } };
+    for (const node of members) if (node !== shown) {
+      drop.add(node.id);
+      rename.set(node.id, shown.id);
+    }
+  }
+  // Lanes beyond MAX_LANES fold into one "+N" card per layer.
+  const remaining = steps.filter((node) => !drop.has(node.id));
+  const layers = new Map<unknown, CanvasNode[]>();
+  for (const node of remaining) layers.set(node.meta?.layer, [...(layers.get(node.meta?.layer) ?? []), node]);
+  const folds: CanvasNode[] = [];
+  for (const [index, lanes] of layers) {
+    if (lanes.length <= MAX_LANES) continue;
+    const sorted = [...lanes].sort((a, b) => Number(a.meta?.lane ?? 0) - Number(b.meta?.lane ?? 0));
+    // Lanes that need you or run stay visible; the quiet ones fold.
+    const keep = [...sorted].sort((a, b) => (RANK[a.status ?? ""] ?? 3) - (RANK[b.status ?? ""] ?? 3)).slice(0, MAX_LANES - 1);
+    const hidden = sorted.filter((node) => !keep.includes(node));
+    const fold: CanvasNode = {
+      id: `fold:${runId}:${String(index)}`,
+      kind: "step",
+      label: `+${hidden.length}`,
+      parentId: runId,
+      meta: { step: true, layer: index, lane: MAX_LANES, folded: hidden.length, steps: hidden.map((node) => node.label) },
+    };
+    folds.push(fold);
+    for (const node of hidden) {
+      drop.add(node.id);
+      rename.set(node.id, fold.id);
+    }
+  }
+  // A folded step's threads stay taken by the card that stands for it, so the
+  // Canvas does not draw them again as loose threads.
+  const targets = new Map([...remaining, ...folds].map((node) => [node.id, node]));
+  for (const id of drop) {
+    let target = rename.get(id);
+    while (target && drop.has(target)) target = rename.get(target);
+    const card = target ? targets.get(target) : undefined;
+    const node = byId.get(id);
+    if (!card || !node) continue;
+    const own = Array.isArray(node.meta?.attemptThreads) ? (node.meta.attemptThreads as string[]) : [];
+    const theirs = Array.isArray(card.meta?.attemptThreads) ? (card.meta.attemptThreads as string[]) : [];
+    card.meta = { ...card.meta, attemptThreads: [...new Set([...theirs, ...own])] };
+  }
+  for (const [id, target] of rename) {
+    let final = target;
+    while (drop.has(final) && rename.has(final)) final = rename.get(final)!;
+    rename.set(id, final);
+  }
+  layer.nodes = [...layer.nodes.filter((node) => !drop.has(node.id)), ...folds];
+  const seen = new Set<string>();
+  layer.edges = layer.edges.flatMap((edge) => {
+    const from = rename.get(edge.from) ?? edge.from;
+    const to = rename.get(edge.to) ?? edge.to;
+    if (from === to) return [];
+    const key = `${from}>${to}>${edge.variant ?? ""}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ ...edge, from, to }];
+  });
 }
 
 /**

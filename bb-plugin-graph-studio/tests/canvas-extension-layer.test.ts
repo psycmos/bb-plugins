@@ -96,3 +96,40 @@ describe("flow steps for the Canvas (BBP-303)", () => {
     expect(layer.edges).toContainEqual(expect.objectContaining({ from: "thread:thrPlan", to: "thread:thrA", variant: "step" }));
   });
 });
+
+describe("Form B for big flows (BBP-303)", () => {
+  const flow = (branches: number, length: number, ran: { nodeId: string; status: string; childThreadId?: string }[] = []) => {
+    const nodes = [{ id: "s", label: "split", kind: "agent" }, { id: "j", label: "join", kind: "agent" }];
+    const edges = [{ from: "__start__", to: "s" }, { from: "j", to: "__end__" }] as { from: string; to: string }[];
+    for (let b = 0; b < branches; b += 1) {
+      for (let i = 0; i < length; i += 1) {
+        nodes.push({ id: `b${b}s${i}`, label: `B${b}.${i}`, kind: "agent" });
+        edges.push({ from: i === 0 ? "s" : `b${b}s${i - 1}`, to: `b${b}s${i}` });
+      }
+      edges.push({ from: `b${b}s${length - 1}`, to: "j" });
+    }
+    const run = { id: "r", projectId: "p1", threadId: null, status: "running", createdAt: 1, graph: { id: "g", name: "G", nodes, edges }, nodeRuns: ran.map((step) => ({ attempt: 1, ...step })) } as never;
+    return canvasExtensionLayer("p1", [run]);
+  };
+  const steps = (layer: ReturnType<typeof canvasExtensionLayer>) => layer.nodes.filter((node) => node.meta?.step === true);
+
+  it("keeps a small flow one card per step (Form A)", () => {
+    expect(steps(flow(2, 2))).toHaveLength(6);
+  });
+
+  it("draws each long branch as one card showing its current step", () => {
+    const layer = flow(2, 4, [{ nodeId: "b0s0", status: "done", childThreadId: "t0" }, { nodeId: "b0s1", status: "running", childThreadId: "t1" }]);
+    const cards = steps(layer);
+    expect(cards).toHaveLength(4);
+    const branch = cards.find((node) => node.id === "thread:t1")!;
+    expect(branch.meta).toMatchObject({ branch: { done: 1, total: 4 }, attemptThreads: expect.arrayContaining(["t0", "t1"]) });
+    expect(layer.edges.some((edge) => edge.from === "thread:t1" && edge.to.endsWith(":j"))).toBe(true);
+  });
+
+  it("folds lanes beyond the limit into one +N card", () => {
+    const cards = steps(flow(7, 1));
+    const fold = cards.find((node) => typeof node.meta?.folded === "number")!;
+    expect(fold.label).toBe("+4");
+    expect(cards).toHaveLength(2 + 3 + 1);
+  });
+});

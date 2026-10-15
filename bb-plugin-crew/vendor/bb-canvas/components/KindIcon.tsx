@@ -92,6 +92,10 @@ function describeToolCall(meta?: Record<string, unknown>): string {
 export function describeNode(kind: CanvasNodeKind, childCount: number, meta?: Record<string, unknown>): string {
   if (meta?.step === true) {
     // A graph step (BBP-303): what it is, how often it ran, or that it has not yet.
+    // Form B (big flows): a whole branch on one card, or the lanes folded away.
+    if (typeof meta.folded === "number") return `${meta.folded} more ${meta.folded === 1 ? "branch" : "branches"}`;
+    const branch = meta.branch as { done?: unknown; total?: unknown } | undefined;
+    if (branch && typeof branch.done === "number" && typeof branch.total === "number") return `Branch · ${branch.done}/${branch.total} steps`;
     if (meta.ghost === true) return "Step · not reached";
     if (meta.gate === true) return "Approval";
     const attempts = typeof meta.attempts === "number" && meta.attempts > 1 ? `×${meta.attempts}` : undefined;
