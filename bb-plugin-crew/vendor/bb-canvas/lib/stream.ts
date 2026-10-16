@@ -100,7 +100,7 @@ export function streamTurns(nodes: readonly CanvasNode[]): { nodes: CanvasNode[]
     out.push({
       id: streamId(node.id),
       kind: "system-event",
-      label: `${messages} ${messages === 1 ? "message" : "messages"} · ${steps} ${steps === 1 ? "step" : "steps"}`,
+      label: streamLabel(messages, steps),
       parentId: node.id,
       // Running, so the activity line reaches it; a failed line shows inside.
       ...(running ? { status: "running" as const } : {}),
@@ -108,4 +108,14 @@ export function streamTurns(nodes: readonly CanvasNode[]): { nodes: CanvasNode[]
     });
   }
   return { nodes: out, owner };
+}
+
+/** The stream's count; a part that is zero is left out ("4 steps", not
+ *  "0 messages · 4 steps"). */
+export function streamLabel(messages: number, steps: number): string {
+  const parts = [
+    ...(messages > 0 ? [`${messages} ${messages === 1 ? "message" : "messages"}`] : []),
+    ...(steps > 0 || messages === 0 ? [`${steps} ${steps === 1 ? "step" : "steps"}`] : []),
+  ];
+  return parts.join(" · ");
 }

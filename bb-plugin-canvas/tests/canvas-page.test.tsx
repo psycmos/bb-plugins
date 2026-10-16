@@ -439,7 +439,7 @@ describe("the Canvas page's turn stream (BBP-320, was +N earlier BBP-286)", () =
     sdk.threads.timelineTurnSummaryDetails.mockImplementation(async () => ({ rows: steps }) as never);
     canvasPanel(sdk);
     await open(/^Plain chat — /);
-    const stream = await screen.findByRole("log", { name: "0 messages · 12 steps" });
+    const stream = await screen.findByRole("log", { name: "12 steps" });
     expect(within(stream).getByRole("button", { name: /^tool12 — / })).toBeTruthy();
     expect(within(stream).getByRole("button", { name: /^tool1 — / })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^\+2 earlier/ })).toBeNull();

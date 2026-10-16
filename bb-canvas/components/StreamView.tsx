@@ -18,6 +18,8 @@ export type StreamViewProps = {
 
 const ROW = STREAM_LINE - 6;
 const INDENT = 18;
+/** Room between the stream's rail and its lines. */
+const RAIL_GAP = 10;
 const EXPANDER_ROOM = 34;
 const FADE = "linear-gradient(to bottom, transparent 0, #000 36px)";
 
@@ -89,6 +91,10 @@ export function StreamView({ groups, label, dimmed = false }: StreamViewProps) {
           ...(overflows ? { maskImage: FADE, WebkitMaskImage: FADE } : {}),
           display: "flex",
           flexDirection: "column",
+          // One rail down the stream's whole left edge: the turn's edge
+          // arrives on it at any height, and every line hangs off it.
+          borderLeft: "1px solid var(--border)",
+          paddingLeft: RAIL_GAP,
           // A card's expander sits past its right edge; room for it here,
           // or the scroll box clips it.
           paddingRight: EXPANDER_ROOM,

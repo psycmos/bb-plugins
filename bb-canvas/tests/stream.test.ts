@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultLines, groupSteps, STREAM_HEAD, STREAM_LINE, STREAM_MAX_LINES, streamId, streamTurns } from "../lib/stream";
+import { defaultLines, groupSteps, STREAM_HEAD, STREAM_LINE, STREAM_MAX_LINES, streamId, streamLabel, streamTurns } from "../lib/stream";
 import { sizeOfNode, TIER_SIZE } from "../lib/tiers";
 import type { CanvasNode } from "../lib/types";
 
@@ -68,5 +68,18 @@ describe("streamTurns", () => {
 describe("sizeOfNode", () => {
   it("keeps the tier's size without a meta.size", () => {
     expect(sizeOfNode(tool("a"))).toEqual(TIER_SIZE.row);
+  });
+});
+
+describe("streamLabel", () => {
+  it("names messages and steps", () => {
+    expect(streamLabel(2, 5)).toBe("2 messages · 5 steps");
+    expect(streamLabel(1, 1)).toBe("1 message · 1 step");
+  });
+
+  it("negative: leaves a zero part out, but never says nothing", () => {
+    expect(streamLabel(0, 4)).toBe("4 steps");
+    expect(streamLabel(3, 0)).toBe("3 messages");
+    expect(streamLabel(0, 0)).toBe("0 steps");
   });
 });
