@@ -332,6 +332,11 @@ export function layoutTree(
     if (node.status !== "running") continue;
     for (let id = parentOf(node); id !== null && !runningBranch.has(id); id = parentOf(byId.get(id)!)) runningBranch.add(id);
   }
+  // Inside a flow a step's tree parent is the flow node, so the walk above
+  // skips the steps before it and the line broke between the run and the
+  // running step (BBP-314). Follow the step edges back as well.
+  extendUpstream(nodes.filter((node) => node.status === "running").map((node) => node.id), edges, runningBranch);
+  extendUpstream(nodes.filter((node) => node.meta?.needsYou || node.meta?.waitsForYou).map((node) => node.id), edges, needsBranch);
   const flowEdges: PlacedEdge[] = order.flatMap((id) => {
     const parentId = parentIdOf.get(id)!;
     if (parentId === null) return [];
@@ -354,7 +359,7 @@ export function layoutTree(
     const from = placed.get(edge.from);
     const to = placed.get(edge.to);
     if (!from || !to) return [];
-    return [edge.variant === "back" ? backEdge(from, to, edge) : edge.variant === "step" ? stepEdge(from, to, edge, runningBranch, byId, joints) : messageEdge(from, to, edge)];
+    return [edge.variant === "back" ? backEdge(from, to, edge) : edge.variant === "step" ? stepEdge(from, to, edge, runningBranch, needsBranch, byId, joints) : messageEdge(from, to, edge)];
   });
 
   // Derived from the actual placed extents rather than a per-column/per-row
@@ -445,6 +450,26 @@ function flowEdge(from: PlacedNode, to: PlacedNode, toNode: CanvasNode, onSelect
   return { from: from.id, to: to.id, variant: "flow", path, label: "", isBack: false, ...(state ? { state } : {}) };
 }
 
+/** Adds every step that leads, over step edges not marked skipped, to one
+ *  of `seeds` — the edge into such a step is part of the path to it. */
+function extendUpstream(seeds: readonly string[], edges: readonly CanvasEdge[], into: Set<string>): void {
+  const before = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (edge.variant !== "step" || edge.state === "skipped") continue;
+    before.set(edge.to, [...(before.get(edge.to) ?? []), edge.from]);
+  }
+  const queue = [...seeds];
+  const seen = new Set(seeds);
+  while (queue.length > 0) {
+    for (const from of before.get(queue.pop()!) ?? []) {
+      if (seen.has(from)) continue;
+      seen.add(from);
+      into.add(from);
+      queue.push(from);
+    }
+  }
+}
+
 /** One step of a flow to the next (BBP-303): right edge to left edge. Dashed
  *  blue while the target runs. */
 function stepEdge(
@@ -452,6 +477,7 @@ function stepEdge(
   to: PlacedNode,
   edge: CanvasEdge,
   running: ReadonlySet<string>,
+  needs: ReadonlySet<string>,
   byId: ReadonlyMap<string, CanvasNode>,
   joints: { outs: ReadonlyMap<string, number>; ins: ReadonlyMap<string, number> },
 ): PlacedEdge {
@@ -476,7 +502,7 @@ function stepEdge(
     .join(" ");
   const target = byId.get(to.id);
   const state: CanvasEdgeState | undefined =
-    edge.state === "skipped" ? "skipped" : target?.meta?.needsYou || target?.meta?.waitsForYou ? "needs" : target?.status === "running" || running.has(to.id) ? "now" : edge.state;
+    edge.state === "skipped" ? "skipped" : target?.meta?.needsYou || target?.meta?.waitsForYou || needs.has(to.id) ? "needs" : target?.status === "running" || running.has(to.id) ? "now" : edge.state;
   return {
     from: from.id,
     to: to.id,

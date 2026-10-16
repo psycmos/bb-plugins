@@ -404,6 +404,45 @@ describe("flow layout for graph runs (BBP-303)", () => {
     expect(exit.state).toBe("skipped");
   });
 
+  // BBP-314: the line broke between the run and the running step.
+  it("lights the whole path from the run to a running step, every branch into it", () => {
+    const running = nodes.map((n) => (n.id === "join" ? { ...n, status: "running" as const } : n));
+    const layout = layoutTree(running, new Set(["run"]), edges);
+    const state = (from: string, to: string) => layout.edges.find((e) => e.from === from && e.to === to)!.state;
+    for (const [from, to] of [["run", "plan"], ["plan", "a"], ["plan", "b"], ["a", "join"], ["b", "join"]] as const) {
+      expect(state(from, to)).toBe("now");
+    }
+  });
+
+  it("leaves the path dark when nothing in the flow runs, and stops at the running step", () => {
+    const idle = layoutTree(nodes, new Set(["run"]), edges);
+    expect(idle.edges.filter((e) => e.state === "now")).toEqual([]);
+    const midway = layoutTree(
+      nodes.map((n) => (n.id === "a" ? { ...n, status: "running" as const } : n)),
+      new Set(["run"]),
+      edges,
+    );
+    const state = (from: string, to: string) => midway.edges.find((e) => e.from === from && e.to === to)!.state;
+    expect(state("run", "plan")).toBe("now");
+    expect(state("plan", "a")).toBe("now");
+    expect(state("plan", "b")).toBeUndefined();
+    expect(state("a", "join")).toBeUndefined();
+  });
+
+  it("turns the path to a step waiting for the human amber, not past a skipped exit", () => {
+    const waiting = layoutTree(
+      nodes.map((n) => (n.id === "join" ? { ...n, meta: { ...n.meta, waitsForYou: true } } : n)),
+      new Set(["run"]),
+      edges.map((e) => (e.from === "b" ? { ...e, state: "skipped" as const } : e)),
+    );
+    const state = (from: string, to: string) => waiting.edges.find((e) => e.from === from && e.to === to)!.state;
+    expect(state("run", "plan")).toBe("needs");
+    expect(state("plan", "a")).toBe("needs");
+    expect(state("a", "join")).toBe("needs");
+    expect(state("b", "join")).toBe("skipped");
+    expect(state("plan", "b")).toBeUndefined();
+  });
+
   it("joins the steps with step edges and hangs only the first layer off the run", () => {
     const layout = layoutTree(nodes, new Set(["run"]), edges);
     expect(layout.edges.filter((e) => e.from === "run").map((e) => e.to)).toEqual(["plan"]);
