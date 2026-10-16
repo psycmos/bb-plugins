@@ -4,7 +4,7 @@
 // and what a row and the window's buttons do.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { clampBox, MIN_SIZE, terminalLines, ToolCallTerminal } from "../components/terminal";
+import { clampBox, MIN_SIZE, shownBox, terminalLines, ToolCallTerminal } from "../components/terminal";
 import type { CanvasNode } from "../vendor/bb-canvas/lib/types";
 
 afterEach(() => {
@@ -99,7 +99,31 @@ describe("clampBox", () => {
   });
 });
 
+describe("shownBox", () => {
+  const area = { width: 1000, height: 600 };
+  const box = { x: 100, y: 200, width: 400, height: 150, minimized: false };
+
+  it("maximized, fills the area but a margin all round, and keeps its own place for the way back", () => {
+    expect(shownBox({ ...box, maximized: true }, area)).toMatchObject({ x: 12, y: 12, width: 976, height: 576, maximized: true });
+    expect(shownBox(box, area)).toMatchObject({ x: 100, y: 200, width: 400, height: 150 });
+  });
+
+  it("negative: an unmeasured area does not maximize into nothing", () => {
+    expect(shownBox({ ...box, maximized: true }, { width: 0, height: 0 })).toMatchObject({ x: 100, width: 400 });
+  });
+});
+
 describe("ToolCallTerminal", () => {
+  it("maximizes and restores with its button, and the state survives a remount", () => {
+    render(<ToolCallTerminal nodes={nodes} selectedId={null} onSelect={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Maximize tool calls" }));
+    expect(screen.getByRole("button", { name: "Restore size" }).getAttribute("aria-pressed")).toBe("true");
+    cleanup();
+    render(<ToolCallTerminal nodes={nodes} selectedId={null} onSelect={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Restore size" }));
+    expect(screen.getByRole("button", { name: "Maximize tool calls" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("selects a call's card on a click and marks the selected line", () => {
     const onSelect = vi.fn();
     const { rerender } = render(<ToolCallTerminal nodes={nodes} selectedId={null} onSelect={onSelect} onClose={vi.fn()} />);

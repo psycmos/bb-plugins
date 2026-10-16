@@ -15,13 +15,13 @@ const INSET = 12;
 const ROW_HEIGHT = 22;
 const TITLE_HEIGHT = 30;
 
-export type TerminalBox = { x: number; y: number; width: number; height: number; minimized: boolean };
+export type TerminalBox = { x: number; y: number; width: number; height: number; minimized: boolean; maximized?: boolean };
 
 function loadBox(): TerminalBox | null {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "null") as Partial<TerminalBox> | null;
     if (!raw || ![raw.x, raw.y, raw.width, raw.height].every((value) => typeof value === "number" && Number.isFinite(value))) return null;
-    return { x: raw.x!, y: raw.y!, width: raw.width!, height: raw.height!, minimized: raw.minimized === true };
+    return { x: raw.x!, y: raw.y!, width: raw.width!, height: raw.height!, minimized: raw.minimized === true, maximized: raw.maximized === true };
   } catch {
     return null;
   }
@@ -33,6 +33,14 @@ function saveBox(box: TerminalBox): void {
   } catch {
     // Not persisted; the window still moves for this page.
   }
+}
+
+/** Maximized: the whole area but a margin all round; the box keeps its own
+ *  place and size for the way back. */
+export function shownBox(box: TerminalBox, area: { width: number; height: number }): TerminalBox {
+  if (box.maximized && area.width > 0 && area.height > 0)
+    return { ...box, x: INSET, y: INSET, width: area.width - 2 * INSET, height: area.height - 2 * INSET };
+  return clampBox(box, area);
 }
 
 /** The box moved and shrunk as little as needed to sit inside `area`. */
@@ -143,8 +151,9 @@ export function ToolCallTerminal({ nodes, extraCalls = [], threadLabel, selected
 
   const placed = useMemo(() => {
     const start = box ?? { x: (area.width - DEFAULT_SIZE.width) / 2, y: area.height - DEFAULT_SIZE.height - INSET, ...DEFAULT_SIZE, minimized: false };
-    return clampBox(start, area);
+    return shownBox(start, area);
   }, [box, area]);
+  const toggleMaximized = () => setBox({ ...(box ?? placed), maximized: !placed.maximized });
   const setBox = (next: TerminalBox) => {
     saveBox(next);
     setBoxState(next);
@@ -201,7 +210,7 @@ export function ToolCallTerminal({ nodes, extraCalls = [], threadLabel, selected
 
   // See-through, so the canvas and its lines stay visible underneath; the
   // blur keeps the text readable over cards.
-  const shell = "absolute z-20 overflow-hidden rounded-lg border border-border/60 bg-background/35 shadow-lg backdrop-blur-sm";
+  const shell = "absolute z-20 overflow-hidden rounded-lg border border-border/60 bg-background/20 shadow-lg backdrop-blur-sm";
 
   if (placed.minimized)
     return (
@@ -229,8 +238,11 @@ export function ToolCallTerminal({ nodes, extraCalls = [], threadLabel, selected
         style={{ left: placed.x, top: placed.y, width: placed.width, height: placed.height }}
       >
         <div
-          onPointerDown={start("move")}
-          className="flex shrink-0 cursor-move select-none items-center gap-2 border-b border-border/50 bg-card/30 px-2.5 text-[11px]"
+          onPointerDown={placed.maximized ? undefined : start("move")}
+          onDoubleClick={(event) => {
+            if (!(event.target as HTMLElement).closest("button, select")) toggleMaximized();
+          }}
+          className={`flex shrink-0 ${placed.maximized ? "" : "cursor-move"} select-none items-center gap-2 border-b border-border/50 bg-card/20 px-2.5 text-[11px]`}
           style={{ height: TITLE_HEIGHT }}
         >
           <span aria-hidden className="text-muted-foreground">⠿</span>
@@ -259,6 +271,15 @@ export function ToolCallTerminal({ nodes, extraCalls = [], threadLabel, selected
           </button>
           <button type="button" aria-label="Minimize tool calls" onClick={() => setBox({ ...placed, minimized: true })} className="rounded px-1 text-muted-foreground hover:text-foreground">
             ▁
+          </button>
+          <button
+            type="button"
+            aria-label={placed.maximized ? "Restore size" : "Maximize tool calls"}
+            aria-pressed={placed.maximized === true}
+            onClick={toggleMaximized}
+            className="rounded px-1 text-muted-foreground hover:text-foreground"
+          >
+            {placed.maximized ? "⤡" : "⤢"}
           </button>
           <button type="button" aria-label="Close tool calls (T)" onClick={onClose} className="rounded px-1 text-muted-foreground hover:text-foreground">
             ✕
@@ -300,11 +321,11 @@ export function ToolCallTerminal({ nodes, extraCalls = [], threadLabel, selected
             </li>
           ))}
         </ol>
-        <div
+        {placed.maximized ? null : <div
           aria-hidden
           onPointerDown={start("resize")}
           className="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize border-b-2 border-r-2 border-border"
-        />
+        />}
       </section>
     </div>
   );
