@@ -1,8 +1,8 @@
-// Bounds for the resizable details sidebar (BBP-182). Narrower than 240px
+// Bounds for the resizable details sidebar (BBP-182). Narrower than 300px
 // the meta grid wraps every value; wider than 640px it eats the canvas.
-export const MIN_WIDTH = 240;
+export const MIN_WIDTH = 300;
 export const MAX_WIDTH = 640;
-export const DEFAULT_WIDTH = 320;
+export const DEFAULT_WIDTH = 360;
 
 /** Keeps a sidebar width inside the bounds. A non-finite value (a garbage
  *  stored width, a NaN from arithmetic) falls back to the default rather

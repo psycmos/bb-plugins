@@ -3,7 +3,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 const sidebar = (page: Page) => page.getByLabel("Details for orch-lead");
-const handle = (page: Page) => page.getByRole("separator", { name: "Resize details" });
+const handle = (page: Page) => page.getByRole("separator", { name: "Resize panel" });
 const renderedWidth = async (page: Page) => (await sidebar(page).boundingBox())!.width;
 
 async function openSidebar(page: Page) {
@@ -19,18 +19,18 @@ test.beforeEach(async ({ page }) => {
   await openSidebar(page);
 });
 
-test("starts at the default width of 320px", async ({ page }) => {
-  await expect(handle(page)).toHaveAttribute("aria-valuenow", "320");
-  expect(await renderedWidth(page)).toBe(320);
+test("starts at the default width of 360px", async ({ page }) => {
+  await expect(handle(page)).toHaveAttribute("aria-valuenow", "360");
+  expect(await renderedWidth(page)).toBe(360);
 });
 
 test("Left/Right move 16px, Home/End jump to the bounds and stay there", async ({ page }) => {
   await handle(page).focus();
   await page.keyboard.press("ArrowLeft");
-  await expect(handle(page)).toHaveAttribute("aria-valuenow", "336");
+  await expect(handle(page)).toHaveAttribute("aria-valuenow", "376");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
-  await expect(handle(page)).toHaveAttribute("aria-valuenow", "304");
+  await expect(handle(page)).toHaveAttribute("aria-valuenow", "344");
 
   await page.keyboard.press("End");
   await page.keyboard.press("End");
@@ -41,8 +41,8 @@ test("Left/Right move 16px, Home/End jump to the bounds and stay there", async (
   await page.keyboard.press("Home");
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowRight");
-  await expect(handle(page)).toHaveAttribute("aria-valuenow", "240");
-  expect(await renderedWidth(page)).toBe(240);
+  await expect(handle(page)).toHaveAttribute("aria-valuenow", "300");
+  expect(await renderedWidth(page)).toBe(300);
 });
 
 test("dragging resizes live and clamps past either edge", async ({ page }) => {
@@ -52,25 +52,25 @@ test("dragging resizes live and clamps past either edge", async ({ page }) => {
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x - 50, y, { steps: 5 });
-  await expect(handle(page)).toHaveAttribute("aria-valuenow", "370");
+  await expect(handle(page)).toHaveAttribute("aria-valuenow", "410");
   await page.mouse.move(x - 2000, y, { steps: 5 });
   await expect(handle(page)).toHaveAttribute("aria-valuenow", "640");
   await page.mouse.move(x + 2000, y, { steps: 5 });
-  await expect(handle(page)).toHaveAttribute("aria-valuenow", "240");
+  await expect(handle(page)).toHaveAttribute("aria-valuenow", "300");
   await page.mouse.up();
-  expect(await renderedWidth(page)).toBe(240);
+  expect(await renderedWidth(page)).toBe(300);
 });
 
 test("the chosen width survives a reload", async ({ page }) => {
   await handle(page).focus();
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowLeft");
-  await expect(handle(page)).toHaveAttribute("aria-valuenow", "352");
+  await expect(handle(page)).toHaveAttribute("aria-valuenow", "392");
   await page.reload();
   await page.getByRole("button", { name: new RegExp("^factory-1 — ") }).waitFor();
   await openSidebar(page);
-  await expect(handle(page)).toHaveAttribute("aria-valuenow", "352");
-  expect(await renderedWidth(page)).toBe(352);
+  await expect(handle(page)).toHaveAttribute("aria-valuenow", "392");
+  expect(await renderedWidth(page)).toBe(392);
 });
 
 test.describe("in a narrow panel (BBP-179 acceptance)", () => {

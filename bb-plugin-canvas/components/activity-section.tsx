@@ -6,6 +6,7 @@ import type { useSdk } from "@get-bb/plugin-sdk/app";
 import { activityList, type ActivityList } from "../vendor/bb-canvas/lib/activity";
 import { threadNodeId, timelineToCanvas, type TimelineRowLike } from "../vendor/bb-canvas/lib/canvas-threads";
 import { KindIcon } from "../vendor/bb-canvas/components/KindIcon";
+import { Accordion } from "../vendor/bb-canvas/components/Accordion";
 
 export type ActivitySectionProps = {
   sdk: ReturnType<typeof useSdk>;
@@ -43,8 +44,7 @@ export function ActivitySection({ sdk, threadId, turnsPerThread, version, onReve
   // place among them, at the turn it happened after (BBP-298).
   const entries = [...list.entries].reverse();
   return (
-    <section aria-label="Turns" className="flex flex-col gap-2">
-      <div className="text-[11px] text-muted-foreground">{list.header}</div>
+    <Accordion title="Turns" summary={list.header} storageKey="node:thread:turns">
       <ul className="flex flex-col gap-0.5">
         {entries.map((entry) => (
           <li key={entry.id}>
@@ -63,6 +63,6 @@ export function ActivitySection({ sdk, threadId, turnsPerThread, version, onReve
           </li>
         ))}
       </ul>
-    </section>
+    </Accordion>
   );
 }

@@ -48,9 +48,8 @@ describe("Sidebar", () => {
       meta: { crew: "factory-1", mystery: "x" },
     };
     render(<Sidebar node={node} onClose={vi.fn()} />);
-    const details = screen.getByText("Details").closest("details") as HTMLDetailsElement;
-    expect(details).toBeTruthy();
-    expect(details.open).toBe(false);
+    const details = screen.getByRole("region", { name: "Details" });
+    expect(within(details).getByRole("button", { name: /Details/ }).getAttribute("aria-expanded")).toBe("false");
     expect(within(details).getByText("Mystery")).toBeTruthy();
     expect(within(details).getByText("x")).toBeTruthy();
     // The curated field must not also leak into Details.
@@ -108,7 +107,8 @@ describe("Sidebar long field values (BBP-206 review round 1)", () => {
     const long = "y".repeat(300);
     const node: CanvasNode = { id: "c1", kind: "crew", label: "factory-1", parentId: null, meta: { crew: "factory-1", mystery: long } };
     render(<Sidebar node={node} onClose={vi.fn()} />);
-    const details = screen.getByText("Details").closest("details") as HTMLDetailsElement;
+    const details = screen.getByRole("region", { name: "Details" });
+    fireEvent.click(within(details).getByRole("button", { name: /Details/ }));
     expect(within(details).queryByText(long)).toBeNull();
     fireEvent.click(within(details).getByRole("button", { name: "more" }));
     expect(within(details).getByText(long)).toBeTruthy();
@@ -257,20 +257,20 @@ describe("Sidebar resize handle", () => {
     render(<Sidebar node={node} onClose={vi.fn()} />);
     const handle = screen.getByRole("separator");
     expect(handle.getAttribute("aria-orientation")).toBe("vertical");
-    expect(handle.getAttribute("aria-valuemin")).toBe("240");
+    expect(handle.getAttribute("aria-valuemin")).toBe("300");
     expect(handle.getAttribute("aria-valuemax")).toBe("640");
-    expect(width()).toBe(320);
-    expect(aside().style.width).toBe("320px");
+    expect(width()).toBe(360);
+    expect(aside().style.width).toBe("360px");
   });
 
   it("moves 16px per arrow key; left widens because the handle sits on the left edge", () => {
     render(<Sidebar node={node} onClose={vi.fn()} />);
     fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowLeft" });
-    expect(width()).toBe(336);
+    expect(width()).toBe(376);
     fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowRight" });
     fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowRight" });
-    expect(width()).toBe(304);
-    expect(aside().style.width).toBe("304px");
+    expect(width()).toBe(344);
+    expect(aside().style.width).toBe("344px");
   });
 
   it("jumps to the bounds with Home/End and never goes past them", () => {
@@ -283,13 +283,13 @@ describe("Sidebar resize handle", () => {
     fireEvent.keyDown(handle, { key: "Home" });
     fireEvent.keyDown(handle, { key: "Home" });
     fireEvent.keyDown(handle, { key: "ArrowRight" });
-    expect(width()).toBe(240);
+    expect(width()).toBe(300);
   });
 
   it("ignores unrelated keys", () => {
     render(<Sidebar node={node} onClose={vi.fn()} />);
     fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowUp" });
-    expect(width()).toBe(320);
+    expect(width()).toBe(360);
   });
 
   it("resizes by mouse drag and clamps a drag past either edge", () => {
@@ -297,14 +297,14 @@ describe("Sidebar resize handle", () => {
     const handle = screen.getByRole("separator");
     fireEvent.mouseDown(handle, { clientX: 500 });
     fireEvent.mouseMove(window, { clientX: 450 });
-    expect(width()).toBe(370);
+    expect(width()).toBe(410);
     fireEvent.mouseMove(window, { clientX: -2000 });
     expect(width()).toBe(640);
     fireEvent.mouseMove(window, { clientX: 2000 });
-    expect(width()).toBe(240);
+    expect(width()).toBe(300);
     fireEvent.mouseUp(window);
     fireEvent.mouseMove(window, { clientX: 450 });
-    expect(width()).toBe(240);
+    expect(width()).toBe(300);
   });
 
   it("restores the persisted width after a remount", () => {
@@ -323,15 +323,15 @@ describe("Sidebar resize handle", () => {
     first.unmount();
     localStorage.setItem("bb-canvas:sidebar-width", "wide");
     render(<Sidebar node={node} onClose={vi.fn()} />);
-    expect(width()).toBe(320);
+    expect(width()).toBe(360);
   });
 
   it("hides technical fields behind a collapsed Debug toggle (BBP-206 R2c)", () => {
     const node: CanvasNode = { id: "w1", kind: "tool-call", label: "Bash", parentId: null, meta: { toolName: "Bash", rowId: "r1", kind: "work" } };
     render(<Sidebar node={node} onClose={vi.fn()} />);
     expect(screen.queryByText("Details")).toBeNull();
-    const debug = screen.getByText("Debug").closest("details") as HTMLDetailsElement;
-    expect(debug.open).toBe(false);
+    const debug = screen.getByRole("region", { name: "Debug" });
+    expect(within(debug).getByRole("button", { name: /Debug/ }).getAttribute("aria-expanded")).toBe("false");
     expect(within(debug).getByText("r1")).toBeTruthy();
   });
 

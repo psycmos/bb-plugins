@@ -7,6 +7,9 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Another worktree's run may hold the default port; E2E_PORT picks another.
+const port = Number(process.env.E2E_PORT ?? 4173);
+
 const root = fileURLToPath(new URL(".", import.meta.url));
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
 
@@ -22,6 +25,6 @@ createServer(async (req, res) => {
     res.writeHead(404);
     res.end("not found");
   }
-}).listen(4173, "127.0.0.1", () => {
-  console.log("e2e fixture server on http://127.0.0.1:4173");
+}).listen(port, "127.0.0.1", () => {
+  console.log(`e2e fixture server on http://127.0.0.1:${port}`);
 });

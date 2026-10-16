@@ -6,7 +6,8 @@ import type { ColorMode } from "../lib/kind-colors";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { CanvasShell, type CanvasShellHandle } from "./CanvasShell";
 import { Breadcrumb } from "./Breadcrumb";
-import { Sidebar } from "./Sidebar";
+import { IconButton, Sidebar } from "./Sidebar";
+import { SidePanel } from "./SidePanel";
 import { SearchBox } from "./SearchBox";
 import { layoutTree } from "../lib/layout";
 import {
@@ -42,6 +43,39 @@ const EMPTY_DIMMED: ReadonlySet<string> = new Set();
  *  (BBP-173). Tall enough to show a handful of cards, short enough to not
  *  force scroll in a host that does size its container normally. */
 const MIN_HEIGHT = 320;
+
+const PANEL_COLLAPSED_KEY = "bb-canvas:panel-collapsed";
+
+function loadCollapsed(): boolean {
+  try {
+    return localStorage.getItem(PANEL_COLLAPSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveCollapsed(value: boolean): void {
+  try {
+    localStorage.setItem(PANEL_COLLAPSED_KEY, String(value));
+  } catch {
+    // Not persisted; the panel still folds for this page.
+  }
+}
+
+/** What the overview in the side panel can read and do (BBP-313). */
+export type OverviewContext = {
+  /** Every node on the canvas, loaded children included. */
+  nodes: readonly CanvasNode[];
+  /** True while every card with known children is open. */
+  allExpanded: boolean;
+  expandAll: () => void;
+  collapseAll: () => void;
+  select: (nodeId: string) => void;
+  /** What J does: the next running node, centred. */
+  jumpToRunning: () => void;
+  search: { query: string; setQuery: (query: string) => void; matches: number; next: () => void };
+  relations: { available: boolean; shown: boolean; toggle: () => void };
+};
 
 /** What loading a node's children hands back — a thread's turns, typically. */
 export type LoadedChildren = { nodes: readonly CanvasNode[]; edges?: readonly CanvasEdge[] };
@@ -149,6 +183,20 @@ export type CanvasViewProps = {
   overlay?: ReactNode | ((nodes: readonly CanvasNode[]) => ReactNode);
   /** Drawn left of the zoom controls in the bottom-right corner. */
   cornerAction?: ReactNode;
+  /** The always-open side panel (BBP-313): with this, the toolbar row is gone
+   *  and the panel shows this overview while nothing is selected, a node's
+   *  view otherwise. Absent: the toolbar row and a sidebar per selection. */
+  renderOverview?: (context: OverviewContext) => ReactNode;
+  /** The overview panel's title row, right of "Overview" (a running count). */
+  overviewBadge?: ReactNode;
+  /** Pinned at the foot of a node's view — a chat composer (BBP-317). */
+  renderNodeFooter?: (node: CanvasNode) => ReactNode;
+  /** A layer over the whole canvas area — the tool-call terminal (BBP-312).
+   *  It gets every node on the canvas and the selection. */
+  renderCanvasLayer?: (context: { nodes: readonly CanvasNode[]; selectedId: string | null; select: (nodeId: string) => void }) => ReactNode;
+  /** Page-owned single-key shortcuts, by `event.key`; the canvas's own keys
+   *  win over these. */
+  shortcuts?: Readonly<Record<string, () => void>>;
   className?: string;
 };
 
@@ -190,8 +238,19 @@ export function CanvasView({
   controlsPosition,
   overlay,
   cornerAction,
+  renderOverview,
+  overviewBadge,
+  renderNodeFooter,
+  renderCanvasLayer,
+  shortcuts,
   className,
 }: CanvasViewProps) {
+  const panelMode = renderOverview !== undefined;
+  const [panelCollapsed, setPanelCollapsedState] = useState(loadCollapsed);
+  const setPanelCollapsed = (value: boolean) => {
+    saveCollapsed(value);
+    setPanelCollapsedState(value);
+  };
   const [expanded, setExpanded] = useState<Set<string>>(() =>
     restoreExpanded(initialExpanded ?? [], surface === undefined ? null : loadExpandedState(surface)),
   );
@@ -312,6 +371,22 @@ export function CanvasView({
     [allNodes, expanded, allEdges, byId],
   );
   const visibleIds = useMemo(() => new Set(visible.map((node) => node.id)), [visible]);
+  // The panel's search (BBP-310): every visible card whose label matches;
+  // the rest fade, Enter steps through the matches.
+  const matchIds = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!panelMode || query === "") return null;
+    return visible.filter((node) => node.label.toLowerCase().includes(query)).map((node) => node.id);
+  }, [panelMode, searchQuery, visible]);
+  const matchCursor = useRef(0);
+  function nextMatch() {
+    if (matchIds === null || matchIds.length === 0) return;
+    const at = matchCursor.current % matchIds.length;
+    matchCursor.current = at + 1;
+    select(matchIds[at]!);
+    shellRef.current?.centerOn(matchIds[at]!);
+  }
+
   const hasChildren = useMemo(() => {
     const parents = new Set<string>();
     for (const node of allNodes) {
@@ -380,12 +455,18 @@ export function CanvasView({
   }, [selected, loadDetails]);
 
   const dimmedIds = useMemo(() => {
+    if (editingFrameId === null && matchIds !== null) {
+      const hits = new Set(matchIds);
+      const ids = new Set<string>(focusPathIds ?? []);
+      for (const node of visible) if (!hits.has(node.id)) ids.add(node.id);
+      return ids;
+    }
     if (editingFrameId === null) return focusPathIds ?? EMPTY_DIMMED;
     const ids = new Set<string>(focusPathIds ?? []);
     for (const node of visible) if (node.frameId !== editingFrameId) ids.add(node.id);
     for (const frame of frames) if (frame.id !== editingFrameId) ids.add(frame.id);
     return ids;
-  }, [editingFrameId, visible, frames, focusPathIds]);
+  }, [editingFrameId, visible, frames, focusPathIds, matchIds]);
 
   function enterEditMode() {
     if (editingFrameId !== null) return; // nested edit attempt: ignored, not switched.
@@ -658,7 +739,16 @@ export function CanvasView({
         break;
       case "/":
         event.preventDefault();
-        setSearchOpen(true);
+        if (panelMode) {
+          setPanelCollapsed(false);
+          // A frame later: an unfolded panel has to render its field first.
+          requestAnimationFrame(() => document.querySelector<HTMLInputElement>("[data-canvas-search]")?.focus());
+        } else setSearchOpen(true);
+        break;
+      case "]":
+        if (!panelMode) break;
+        event.preventDefault();
+        setPanelCollapsed(!panelCollapsed);
         break;
       case "e":
       case "E":
@@ -671,10 +761,22 @@ export function CanvasView({
         if (exitEditMode()) break;
         if (selected) select(null);
         break;
-      default:
+      default: {
+        const shortcut = !event.metaKey && !event.ctrlKey && !event.altKey ? shortcuts?.[event.key] : undefined;
+        if (shortcut) {
+          event.preventDefault();
+          shortcut();
+        }
         break;
+      }
     }
   }
+
+  const collapseButton = (
+    <IconButton label="Hide panel (])" onClick={() => setPanelCollapsed(true)}>
+      <path d="M6 3H3V13H6M9 5L12 8L9 11M12 8H5" />
+    </IconButton>
+  );
 
   return (
     <div
@@ -692,7 +794,7 @@ export function CanvasView({
     >
       {/* Wraps rather than overflows: in BB's slim panel (370px) the
           controls would otherwise run past the right edge (BBP-179). */}
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: breadcrumbInSidebar ? "flex-start" : "space-between", gap: 8 }}>
+      {panelMode ? null : <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: breadcrumbInSidebar ? "flex-start" : "space-between", gap: 8 }}>
         {breadcrumbInSidebar ? null : <Breadcrumb nodes={allNodes} selectedId={selectedId} onSelect={select} />}
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, padding: "4px 8px" }}>
           {toolbar}
@@ -729,7 +831,7 @@ export function CanvasView({
             </button>
           ) : null}
         </div>
-      </div>
+      </div>}
       {searchOpen ? (
         <SearchBox
           value={searchQuery}
@@ -742,6 +844,36 @@ export function CanvasView({
         <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
           {overlay ? <div style={{ position: "absolute", left: 12, bottom: 12, zIndex: 5, maxWidth: "calc(100% - 200px)" }}>{typeof overlay === "function" ? overlay(visible) : overlay}</div> : null}
           {cornerAction ? <div style={{ position: "absolute", right: 64, bottom: 14, zIndex: 5 }}>{cornerAction}</div> : null}
+          {renderCanvasLayer ? renderCanvasLayer({ nodes: visible, selectedId, select }) : null}
+          {panelMode ? (
+            <div style={{ position: "absolute", left: 12, top: 12, zIndex: 5, maxWidth: "70%" }}>
+              <Breadcrumb nodes={allNodes} selectedId={selectedId} onSelect={select} floating />
+            </div>
+          ) : null}
+          {panelMode && panelCollapsed ? (
+            <div
+              style={{
+                position: "absolute",
+                right: 12,
+                top: 12,
+                zIndex: 5,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: 32,
+                padding: "0 4px 0 10px",
+                borderRadius: 8,
+                border: "1px solid var(--border)",
+                background: "var(--card)",
+                boxShadow: "0 1px 3px rgb(0 0 0 / 0.12)",
+              }}
+            >
+              {overviewBadge}
+              <IconButton label="Show panel (])" onClick={() => setPanelCollapsed(false)}>
+                <path d="M10 3H13V13H10M7 5L4 8L7 11M4 8H11" />
+              </IconButton>
+            </div>
+          ) : null}
           <CanvasShell
             ref={shellRef}
             nodes={allNodes}
@@ -764,23 +896,53 @@ export function CanvasView({
         </div>
         {editingFrameId !== null
           ? (renderFrameEditor?.(editingFrameId) ?? null)
-          : selected
-            ? (
-                <Sidebar
-                  node={sidebarNode ?? selected}
-                  onClose={() => select(null)}
-                  onOpenThread={onOpenThread}
-                  onOpenRun={onOpenRun}
-                  onOpenCrew={onOpenCrew}
-                  onOpenAtRow={onOpenAtRow}
-                  onFocusThis={onFocusThis}
-                  relations={hasRelations ? outgoingRelations(allEdges, selected.id, byId) : undefined}
-                  onSelect={select}
-                  extra={renderSidebarExtra?.(sidebarNode ?? selected)}
-                  header={breadcrumbInSidebar ? <Breadcrumb nodes={allNodes} selectedId={selectedId} onSelect={select} /> : undefined}
-                />
-              )
-            : null}
+          : panelMode && panelCollapsed
+            ? null
+            : selected
+              ? (
+                  <Sidebar
+                    node={sidebarNode ?? selected}
+                    onClose={() => select(null)}
+                    onBack={panelMode ? () => select(null) : undefined}
+                    headerActions={panelMode ? collapseButton : undefined}
+                    onOpenThread={onOpenThread}
+                    onOpenRun={onOpenRun}
+                    onOpenCrew={onOpenCrew}
+                    onOpenAtRow={onOpenAtRow}
+                    onFocusThis={onFocusThis}
+                    relations={hasRelations ? outgoingRelations(allEdges, selected.id, byId) : undefined}
+                    onSelect={select}
+                    extra={renderSidebarExtra?.(sidebarNode ?? selected)}
+                    footer={renderNodeFooter?.(sidebarNode ?? selected)}
+                    header={breadcrumbInSidebar && !panelMode ? <Breadcrumb nodes={allNodes} selectedId={selectedId} onSelect={select} /> : undefined}
+                  />
+                )
+              : panelMode
+                ? (
+                    <SidePanel
+                      label="Overview"
+                      header={
+                        <>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>Overview</span>
+                          <span style={{ flex: 1 }} />
+                          {overviewBadge}
+                          {collapseButton}
+                        </>
+                      }
+                    >
+                      {renderOverview({
+                        nodes: visible,
+                        allExpanded: [...hasChildren].every((id) => expanded.has(id)),
+                        expandAll,
+                        collapseAll,
+                        select,
+                        jumpToRunning: jumpToActive,
+                        search: { query: searchQuery, setQuery: (query) => { matchCursor.current = 0; setSearchQuery(query); }, matches: matchIds?.length ?? 0, next: nextMatch },
+                        relations: { available: hasRelations, shown: showRelations, toggle: toggleRelations },
+                      })}
+                    </SidePanel>
+                  )
+                : null}
       </div>
     </div>
   );

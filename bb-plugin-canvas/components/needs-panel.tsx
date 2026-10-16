@@ -4,6 +4,7 @@
 // asked; the card loses its amber state with the next layer poll.
 import { useState } from "react";
 import type { Needs } from "../lib/extensions";
+import { Accordion } from "../vendor/bb-canvas/components/Accordion";
 
 export type NeedsInfo = Needs & { question?: string; label?: string };
 
@@ -47,10 +48,7 @@ export function NeedsPanel({ needs, answer }: NeedsPanelProps) {
   const button =
     "rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary";
   return (
-    <section aria-label="Needs you" className="flex flex-col gap-2">
-      <div className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
-        Needs you{needs.label ? ` · ${needs.label}` : ""}
-      </div>
+    <Accordion title="Needs you" summary={needs.label} storageKey="node:needs">
       {needs.question ? (
         <div className="whitespace-pre-wrap rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1.5 text-xs text-foreground">{needs.question}</div>
       ) : null}
@@ -76,6 +74,6 @@ export function NeedsPanel({ needs, answer }: NeedsPanelProps) {
       </div>
       {state.sent ? <div className="text-[11px] text-muted-foreground">Answer sent.</div> : null}
       {state.error ? <div className="text-[11px] text-destructive">{state.error}</div> : null}
-    </section>
+    </Accordion>
   );
 }

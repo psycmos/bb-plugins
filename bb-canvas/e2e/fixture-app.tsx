@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { useState } from "react";
 import { CanvasView } from "../components/CanvasView";
 import { ProjectFilter } from "../components/ProjectFilter";
+import { Accordion } from "../components/Accordion";
 import type { CanvasEdge, CanvasNode } from "../lib/types";
 
 const nodes: CanvasNode[] = [
@@ -30,7 +31,10 @@ if (!root) throw new Error("missing #root");
 // file tree — where the toolbar and its dropdown have to fit (BBP-179).
 // Without it the canvas is 1200px but still follows a narrowed viewport,
 // so the sidebar's narrow-panel cap can be tested by resizing the page.
-const widthParam = Number(new URLSearchParams(location.search).get("width"));
+const params = new URLSearchParams(location.search);
+const widthParam = Number(params.get("width"));
+// `?panel=1`: the always-open side panel (BBP-313) instead of the toolbar.
+const panel = params.get("panel") === "1";
 const width = widthParam > 0 ? `${widthParam}px` : "min(1200px, 100vw)";
 
 const projects = [
@@ -46,7 +50,32 @@ function App() {
         nodes={nodes}
         edges={edges}
         initialExpanded={initialExpanded}
-        toolbar={<ProjectFilter projects={projects} selected={selected} onChange={setSelected} />}
+        toolbar={panel ? undefined : <ProjectFilter projects={projects} selected={selected} onChange={setSelected} />}
+        overviewBadge={panel ? <span style={{ fontSize: 11 }}>2 running</span> : undefined}
+        renderOverview={
+          panel
+            ? (context) => (
+                <>
+                  <Accordion title="Search & filter" summary="—">
+                    <input
+                      data-canvas-search
+                      aria-label="Search nodes"
+                      value={context.search.query}
+                      onChange={(event) => context.search.setQuery(event.target.value)}
+                    />
+                    <ProjectFilter projects={projects} selected={selected} onChange={setSelected} />
+                  </Accordion>
+                  <Accordion title="Status" summary="live">
+                    <span>{context.nodes.filter((node) => node.status === "running").length} running</span>
+                  </Accordion>
+                  <Accordion title="Legend" defaultOpen={false}>
+                    <span>colours</span>
+                  </Accordion>
+                </>
+              )
+            : undefined
+        }
+        renderNodeFooter={panel ? (node) => <textarea aria-label="Message" placeholder={`Message ${node.label}…`} style={{ width: "100%" }} /> : undefined}
       />
     </div>
   );

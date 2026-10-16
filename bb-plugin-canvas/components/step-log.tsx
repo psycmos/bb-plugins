@@ -8,6 +8,7 @@ import type { useSdk } from "@get-bb/plugin-sdk/app";
 import { threadNodeId, timelineToCanvas, turnDetailsToCanvas, type TimelineRowLike } from "../vendor/bb-canvas/lib/canvas-threads";
 import { KindIcon } from "../vendor/bb-canvas/components/KindIcon";
 import type { CanvasNode } from "../vendor/bb-canvas/lib/types";
+import { Accordion } from "../vendor/bb-canvas/components/Accordion";
 
 /** How many of the newest turns the log reads; older ones stay in the chat. */
 export const LOG_TURNS = 10;
@@ -91,10 +92,12 @@ export function StepLog({ sdk, threadId, version, onReveal }: StepLogProps) {
 
   if (loaded === null || loaded.threadId !== threadId || loaded.entries.length === 0) return null;
   return (
-    <section aria-label="Tool calls" className="flex flex-col gap-2">
-      <div className="text-[11px] text-muted-foreground">
-        {loaded.entries.length} {loaded.entries.length === 1 ? "call" : "calls"} in the last {LOG_TURNS} turns
-      </div>
+    <Accordion
+      title="Tool calls"
+      summary={`${loaded.entries.length} in the last ${LOG_TURNS} turns`}
+      defaultOpen={false}
+      storageKey="node:thread:tools"
+    >
       <ul className="flex flex-col gap-0.5">
         {loaded.entries.map((entry) => (
           <li key={entry.id}>
@@ -111,6 +114,6 @@ export function StepLog({ sdk, threadId, version, onReveal }: StepLogProps) {
           </li>
         ))}
       </ul>
-    </section>
+    </Accordion>
   );
 }

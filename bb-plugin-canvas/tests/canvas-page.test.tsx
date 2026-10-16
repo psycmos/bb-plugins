@@ -95,39 +95,81 @@ describe("the Canvas surface", () => {
     expect(card("Old")).toBeNull();
   });
 
-  it("puts the project and focus filters, Active only, Color, Collapse all and Expand all on the surface (BBP-298)", async () => {
+  it("puts search, filters, view options, status and legend in the overview panel, and no toolbar row (BBP-310/311/313)", async () => {
     canvasPanel(sdk([row("t1", "p1", "Live")]));
     await screen.findByRole("button", { name: /^Live — / });
-    expect(screen.getByRole("button", { name: "Active only" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Collapse all" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Expand all" })).toBeTruthy();
+    const overview = screen.getByRole("complementary", { name: "Overview" });
+    for (const section of ["Search & filter", "View", "Status", "Legend"]) expect(within(overview).getByRole("region", { name: section })).toBeTruthy();
+    expect(within(overview).getByRole("textbox", { name: "Search nodes" })).toBeTruthy();
+    expect(within(overview).getByRole("button", { name: "Active only" })).toBeTruthy();
+    expect(within(overview).getByRole("radiogroup", { name: "Time window" })).toBeTruthy();
+    expect(within(overview).getByRole("radiogroup", { name: "Cards" })).toBeTruthy();
+    expect(within(overview).getByRole("button", { name: /^Projects/ })).toBeTruthy();
+    expect(within(overview).getByRole("button", { name: /^Focus/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Collapse all" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Expand all" })).toBeNull();
     expect(screen.queryByRole("spinbutton")).toBeNull();
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.getByRole("combobox", { name: "Time window" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Projects/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Focus/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Status/ })).toBeNull();
+  });
+
+  it("Compact and All open replace Collapse all / Expand all", async () => {
+    canvasPanel(sdk([row("t1", "p1", "Live")]));
+    await screen.findByRole("button", { name: /^Live — / });
+    fireEvent.click(screen.getByRole("radio", { name: "Compact" }));
+    expect(screen.getByRole("radio", { name: "Compact" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByRole("button", { name: /^Live — / })).toBeNull();
+  });
+
+  it("shows Reset only once a filter is set, and Reset clears it", async () => {
+    canvasPanel(sdk([row("t1", "p1", "Live")]));
+    await screen.findByRole("button", { name: /^Live — / });
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search nodes" }), { target: { value: "Live" } });
+    expect(within(screen.getByRole("region", { name: "Search & filter" })).getByText("1 active")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Active only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(screen.getByRole("button", { name: "Active only" }).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("colours by type by default; the toggle switches to status and is remembered", async () => {
     canvasPanel(sdk([row("t1", "p1", "Live")]));
-    const toggle = await screen.findByRole("button", { name: "Color: Type" });
+    const type = await screen.findByRole("radio", { name: "Type" });
+    expect(type.getAttribute("aria-checked")).toBe("true");
     expect(document.querySelector("[data-bb-accent]")).toBeTruthy();
-    fireEvent.click(toggle);
-    expect(screen.getByRole("button", { name: "Color: Status" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "Status" }));
+    expect(screen.getByRole("radio", { name: "Status" }).getAttribute("aria-checked")).toBe("true");
     cleanup();
     canvasPanel(sdk([row("t1", "p1", "Live")]));
-    expect(await screen.findByRole("button", { name: "Color: Status" })).toBeTruthy();
+    expect((await screen.findByRole("radio", { name: "Status" })).getAttribute("aria-checked")).toBe("true");
   });
 
-  it("shows the legend with the state counts and a Running button while something runs", async () => {
+  it("counts running work on the status board; the tile jumps to it, the list selects it", async () => {
     canvasPanel(sdk([row("t1", "p1", "Busy", { status: "active" }), row("t2", "p1", "Quiet")]));
     await screen.findByRole("button", { name: /^Busy — / });
-    const legend = screen.getByRole("region", { name: "Legend" });
-    expect(within(legend).getByText("Shell")).toBeTruthy();
-    expect(within(legend).getByText("Running").parentElement?.textContent).toContain("1");
-    fireEvent.click(screen.getByRole("button", { name: "Running 1" }));
+    const status = screen.getByRole("region", { name: "Status" });
+    const tile = within(status).getByText("Running").closest("button")!;
+    expect(tile.textContent).toContain("1");
+    fireEvent.click(tile);
     expect(screen.getByRole("button", { name: /^Busy — / }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(screen.getByRole("complementary", { name: "Details for Busy" })).getByText("Busy")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "← Overview" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Status" })).getByRole("button", { name: /Busy/ }));
+    expect(screen.getByRole("complementary", { name: "Details for Busy" })).toBeTruthy();
+  });
+
+  it("negative: a tile with nothing to jump to is disabled, and nothing running says so", async () => {
+    canvasPanel(sdk([row("t2", "p1", "Quiet")]));
+    await screen.findByRole("button", { name: /^Quiet — / });
+    const status = screen.getByRole("region", { name: "Status" });
+    expect((within(status).getByText("Running").closest("button") as HTMLButtonElement).disabled).toBe(true);
+    expect(within(status).getByText("No running work.")).toBeTruthy();
+  });
+
+  it("keeps the legend closed by default, with the type colours inside", async () => {
+    canvasPanel(sdk([row("t1", "p1", "Live")]));
+    await screen.findByRole("button", { name: /^Live — / });
+    const legend = screen.getByRole("region", { name: "Legend" });
+    expect(within(legend).getByRole("button", { name: /Legend/ }).getAttribute("aria-expanded")).toBe("false");
+    expect(within(legend).getByText("Shell")).toBeTruthy();
   });
 
   it("says where to widen the window when it leaves no thread", async () => {
@@ -139,7 +181,7 @@ describe("the Canvas surface", () => {
     canvasPanel(sdk([row("t1", "p1", "Live")]));
     await screen.findByRole("button", { name: /^Live — / });
     fireEvent.keyDown(document.querySelector("[data-canvas-view]")!, { key: "/" });
-    expect(screen.getByRole("textbox", { name: "Search nodes" })).toBe(document.activeElement);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Search nodes" })).toBe(document.activeElement));
   });
 });
 
@@ -284,11 +326,12 @@ describe("the Canvas page live", () => {
     const { sdk, timeline, emit } = liveSdk(() => rows);
     canvasPanel(sdk, { overviewTurns: 10 });
     await open(/^Plain chat — /);
-    // Once for the canvas, once for the open "Turns" tab (BBP-291, BBP-298).
-    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(2));
+    // Once for the canvas, once each for the Turns, Tool calls and Chat
+    // sections (BBP-291, BBP-298, BBP-317).
+    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(4));
     rows = [turnRow("turn-1"), { ...turnRow("turn-2"), summaryCount: 0 }];
     emit({ entity: "thread", id: "t1", changes: ["events-appended"] });
-    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(timeline).toHaveBeenCalledTimes(8));
     await waitFor(() => expect(screen.getAllByRole("button", { name: /^Turn.* — / })).toHaveLength(2));
   });
 
@@ -378,7 +421,7 @@ describe("the Canvas page's +N earlier steps (BBP-286)", () => {
     const { sdk, timelineTurnSummaryDetails } = liveSdk(() => [{ ...turnRow("turn-1"), summaryCount: 0 }]);
     canvasPanel(sdk);
     await open(/^Plain chat — /);
-    await screen.findByRole("button", { name: /^Turn/ });
+    await screen.findByRole("button", { name: /^Turn.* — / });
     expect(screen.getByRole("button", { name: /^Collapse Plain chat/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Expand Turn/ })).toBeNull();
     expect(timelineTurnSummaryDetails).not.toHaveBeenCalled();
@@ -560,8 +603,8 @@ describe("the Canvas filters, auto-open and Log (BBP-298)", () => {
     const { sdk } = liveSdk(() => [turnRow("turn-1")]);
     canvasPanel(sdk);
     fireEvent.click(await screen.findByRole("button", { name: /^Plain chat — / }));
-    fireEvent.click(await screen.findByRole("tab", { name: "Tool calls" }));
     const log = await screen.findByRole("region", { name: "Tool calls" });
+    fireEvent.click(within(log).getByRole("button", { name: /Tool calls/ }));
     expect(within(log).getByText(/Review the diff/)).toBeTruthy();
   });
 });
@@ -574,31 +617,31 @@ describe("the Canvas time window in the toolbar (BBP-298)", () => {
     });
     expect(await screen.findByRole("button", { name: /^Today — / })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Yesterday — / })).toBeNull();
-    const select = screen.getByRole("combobox", { name: "Time window" }) as HTMLSelectElement;
-    expect(select.value).toBe(String(12 * 3_600_000));
-    fireEvent.change(select, { target: { value: String(24 * 3_600_000) } });
+    expect(screen.getByRole("radio", { name: "12 h" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("radio", { name: "24 h" }));
     expect(await screen.findByRole("button", { name: /^Yesterday — / })).toBeTruthy();
   });
 });
 
 describe("the Canvas sidebar layout (BBP-298)", () => {
-  it("puts the breadcrumb atop the sidebar, so the toolbar stays where it is", async () => {
-    const { sdk } = liveSdk(() => [turnRow("turn-1")]);
-    canvasPanel(sdk);
-    const projects = await screen.findByRole("button", { name: /^Projects/ });
-    fireEvent.click(screen.getByRole("button", { name: /^Plain chat — / }));
-    const aside = screen.getByRole("complementary", { name: "Details for Plain chat" });
-    expect(within(aside).getByRole("navigation")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Projects/ })).toBe(projects);
-  });
-
-  it("remembers the picked tab for the next thread", async () => {
+  it("puts the breadcrumb over the canvas, not in the panel (BBP-309)", async () => {
     const { sdk } = liveSdk(() => [turnRow("turn-1")]);
     canvasPanel(sdk);
     fireEvent.click(await screen.findByRole("button", { name: /^Plain chat — / }));
-    fireEvent.click(screen.getByRole("tab", { name: "Tool calls" }));
+    const aside = screen.getByRole("complementary", { name: "Details for Plain chat" });
+    const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(aside.contains(crumb)).toBe(false);
+  });
+
+  it("remembers an opened section for the next thread", async () => {
+    const { sdk } = liveSdk(() => [turnRow("turn-1")]);
+    canvasPanel(sdk);
+    fireEvent.click(await screen.findByRole("button", { name: /^Plain chat — / }));
+    const log = await screen.findByRole("region", { name: "Tool calls" });
+    fireEvent.click(within(log).getByRole("button", { name: /Tool calls/ }));
     fireEvent.click(screen.getByRole("button", { name: /^Other chat — / }));
-    expect(screen.getByRole("tab", { name: "Tool calls" }).getAttribute("aria-selected")).toBe("true");
+    const next = await screen.findByRole("region", { name: "Tool calls" });
+    expect(within(next).getByRole("button", { name: /Tool calls/ }).getAttribute("aria-expanded")).toBe("true");
   });
 });
 

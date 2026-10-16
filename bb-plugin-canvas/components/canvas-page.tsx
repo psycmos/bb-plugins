@@ -11,9 +11,6 @@ import { mergeExtensions } from "../lib/merge-extensions";
 import { filterActive } from "../vendor/bb-canvas/lib/active-filter";
 import { CanvasView } from "../vendor/bb-canvas/components/CanvasView";
 import { FocusUnavailable } from "../vendor/bb-canvas/components/FocusUnavailable";
-import { Legend } from "../vendor/bb-canvas/components/Legend";
-import { FocusFilter } from "../vendor/bb-canvas/components/FocusFilter";
-import { ProjectFilter } from "../vendor/bb-canvas/components/ProjectFilter";
 import { loadProjectFilter, saveProjectFilter } from "../vendor/bb-canvas/lib/project-filter";
 import type { ColorMode } from "../vendor/bb-canvas/lib/kind-colors";
 import { missingFocusIds, visibleFocusIds } from "../vendor/bb-canvas/lib/focus-filter";
@@ -31,8 +28,10 @@ import {
 import type { CanvasEdge, CanvasNode } from "../vendor/bb-canvas/lib/types";
 import { ActivitySection } from "./activity-section";
 import { StepLog } from "./step-log";
-import { ThreadTabs } from "./thread-tabs";
 import { NeedsPanel, needsOf } from "./needs-panel";
+import { Overview } from "./overview";
+import { ChatComposer, ChatHistory, type ChatMessage } from "./chat";
+import { ToolCallTerminal } from "./terminal";
 
 type State = { projects: ProjectLike[]; threads: readonly ThreadListItem[] } | { error: string } | null;
 type Sdk = ReturnType<typeof useSdk>;
@@ -139,6 +138,23 @@ const EXTENSION_POLL_MS = 10_000;
 export const ACTIVE_GRACE_MS = 60_000;
 const RUNNING_STATES = new Set(["active", "pending", "starting"]);
 const COLOR_BY_KEY = "bb-canvas:color-by";
+const TERMINAL_KEY = "bb-canvas:terminal-open";
+
+function loadFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveFlag(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // Storage blocked: the toggle still works for this page.
+  }
+}
 
 function loadColorBy(): ColorMode {
   try {
@@ -164,11 +180,6 @@ const openWhileActive = (node: CanvasNode): boolean =>
 
 /** Always: a thread's newest turn opens as soon as the thread is opened. */
 const openNewestTurn = (node: CanvasNode): boolean => node.kind === "turn" && node.meta?.newest === true;
-
-const HOUR = 3_600_000;
-
-const TOOLBAR_BUTTON =
-  "rounded-md border px-2 py-0.5 text-[11px] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary";
 
 function loadActiveOnly(): boolean | null {
   try {
@@ -231,6 +242,11 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     saveColorBy(value);
     setColorByState(value);
   };
+  const [terminalOpen, setTerminalOpenState] = useState(() => loadFlag(TERMINAL_KEY));
+  const setTerminalOpen = (value: boolean) => {
+    saveFlag(TERMINAL_KEY, value);
+    setTerminalOpenState(value);
+  };
   const viewRef = useRef<HTMLDivElement | null>(null);
   const needsCursor = useRef(0);
   const turnsPerThread = useRef(filter.turnsPerThread);
@@ -242,6 +258,8 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
   // Turns the Activity list brought into view past the turn limit (BBP-291).
   const pinned = useRef(new Set<string>());
   const [reveal, setReveal] = useState<{ id: string; seq: number } | null>(null);
+  // Messages sent from the panel, per thread, until the timeline has them (BBP-317).
+  const [sent, setSent] = useState<ReadonlyMap<string, readonly ChatMessage[]>>(new Map());
   const revealEntry = (threadId: string, nodeId: string, inCanvas: boolean) => {
     if (!inCanvas && !pinned.current.has(nodeId)) {
       pinned.current.add(nodeId);
@@ -395,132 +413,109 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
       />
     );
   if (state.threads.length === 0) return <div className="p-4 text-sm text-muted-foreground">No threads yet.</div>;
-  const toolbar = (
-    <>
-      <ProjectFilter projects={state.projects} selected={projectIds} onChange={changeProjects} />
-      <select
-        aria-label="Time window"
-        value={windowMs === null ? "all" : String(windowMs)}
-        onChange={(event) => setWindowPick(event.target.value === "all" ? null : Number(event.target.value))}
-        className={`${TOOLBAR_BUTTON} border-border bg-card text-foreground`}
-      >
-        {[...new Set([HOUR * 12, HOUR * 24, HOUR * 24 * 7, ...(defaults.windowMs !== null ? [defaults.windowMs] : [])])]
-          .sort((a, b) => a - b)
-          .map((ms) => (
-            <option key={ms} value={String(ms)}>
-              {ms % (HOUR * 24) === 0 ? `Last ${ms / (HOUR * 24)} ${ms === HOUR * 24 ? "day" : "days"}` : `Last ${ms / HOUR} hours`}
-            </option>
-          ))}
-        <option value="all">All time</option>
-      </select>
-      {layer !== null ? <FocusFilter nodes={layer.nodes} selected={picked} onChange={setPicked} /> : null}
-      <button
-        type="button"
-        aria-pressed={activeOnly}
-        onClick={() => setActiveOnly(!activeOnly)}
-        className={`${TOOLBAR_BUTTON} ${activeOnly ? "border-primary bg-primary/10 text-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}
-      >
-        Active only
-      </button>
-      <button
-        type="button"
-        onClick={() => setColorBy(colorBy === "type" ? "status" : "type")}
-        className={`${TOOLBAR_BUTTON} border-border bg-card text-muted-foreground hover:text-foreground`}
-      >
-        Color: {colorBy === "type" ? "Type" : "Status"}
-      </button>
-    </>
-  );
-  if (activeOnly && (layer === null || layer.nodes.length === 0))
-    return (
-      <div className="flex flex-col">
-        <div className="flex flex-wrap items-center gap-1.5 px-2 py-1">{toolbar}</div>
-        <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-          Nothing is running right now.
-          <button
-            type="button"
-            onClick={() => setActiveOnly(false)}
-            className="rounded px-1 text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary"
-          >
-            Show everything
-          </button>
-        </div>
-      </div>
+  const link =
+    "rounded px-1 text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary";
+  // An empty canvas keeps its panel (BBP-313): the filters that emptied it
+  // stay one click away, and the hint sits on the canvas itself.
+  const empty =
+    layer !== null && layer.nodes.length > 0 ? null : activeOnly ? (
+      <>
+        Nothing is running right now.
+        <button type="button" onClick={() => setActiveOnly(false)} className={link}>
+          Show everything
+        </button>
+      </>
+    ) : (
+      <>
+        No threads match the projects and window. Widen the window in the plugin settings.
+        <button
+          type="button"
+          onClick={() => {
+            changeProjects([]);
+            setPicked([]);
+            setWindowPick(null);
+          }}
+          className={link}
+        >
+          Reset filters
+        </button>
+      </>
     );
-  if (layer === null || layer.nodes.length === 0)
-    return (
-      <div className="flex flex-col">
-        <div className="flex flex-wrap items-center gap-1.5 px-2 py-1">{toolbar}</div>
-        <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-          No threads match the projects and window. Widen the window in the plugin settings.
-          <button
-            type="button"
-            onClick={() => {
-              changeProjects([]);
-              setPicked([]);
-              setWindowPick(null);
-            }}
-            className="rounded px-1 text-primary underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary"
-          >
-            Reset filters
-          </button>
-        </div>
-      </div>
-    );
-  const visible = visibleFocusIds(layer.nodes, focusIds);
-  const running = layer.nodes.filter((node) => node.status === "running").length;
+  const shown = layer ?? { nodes: [] as CanvasNode[], edges: [] as CanvasEdge[], frames: [], expanded: [] as string[] };
+  const visible = visibleFocusIds(shown.nodes, focusIds);
+  const running = shown.nodes.filter((node) => node.status === "running").length;
   // BBP-303: what waits for the human; the button cycles through it.
-  const needing = layer.nodes.filter((node) => node.meta?.needsYou).map((node) => node.id);
+  const needing = shown.nodes.filter((node) => node.meta?.needsYou).map((node) => node.id);
   const jumpToNeeds = () => {
     if (needing.length === 0) return;
     const at = needsCursor.current % needing.length;
     needsCursor.current = at + 1;
     setReveal((prev) => ({ id: needing[at]!, seq: (prev?.seq ?? 0) + 1 }));
   };
-  // "Running N" does what J does: the canvas cycles through running work.
-  const jumpToRunning = () => viewRef.current?.querySelector<HTMLElement>("[data-canvas-view]")?.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
+  const threadLabel = (threadId: string) => shown.nodes.find((node) => node.id === threadNodeId(threadId))?.label ?? "thread";
+  const resetFilters = () => {
+    changeProjects([]);
+    setPicked([]);
+    setWindowPick(undefined);
+    setActiveOnly(false);
+  };
   return (
-    <div ref={viewRef} className="flex h-full min-h-0 flex-col">
+    <div ref={viewRef} className="relative flex h-full min-h-0 flex-col">
+        {empty ? <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm">{empty}</div> : null}
         <CanvasView
-          nodes={layer.nodes.filter((node) => visible.has(node.id))}
-          edges={layer.edges}
-          frames={layer.frames}
-          initialExpanded={new Set(layer.expanded)}
-          toolbar={toolbar}
+          nodes={shown.nodes.filter((node) => visible.has(node.id))}
+          edges={shown.edges}
+          frames={shown.frames}
+          initialExpanded={new Set(shown.expanded)}
           halo
           colorBy={colorBy}
-          breadcrumbInSidebar
           stepsAsLog
           relationsByDefault
           autoExpand={autoExpand}
-          controlsPosition="bottom-right"
-          overlay={(shown) => <Legend nodes={shown} colorBy={colorBy} />}
-          cornerAction={
+          controlsPosition="bottom-left"
+          overviewBadge={
             running > 0 || needing.length > 0 ? (
-              <span className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1.5 text-[11px]">
                 {needing.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={jumpToNeeds}
-                    className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] shadow-sm"
-                    style={{ borderColor: "#fcd34d", background: "#fffbeb", color: "#b45309" }}
-                  >
-                    ◷ Needs you {needing.length}
-                  </button>
+                  <span className="flex items-center gap-1 rounded-full border px-2 py-0.5" style={{ borderColor: "#f59e0b80", color: "#f59e0b" }}>
+                    ◷ {needing.length}
+                  </span>
                 ) : null}
                 {running > 0 ? (
-              <button
-                type="button"
-                onClick={jumpToRunning}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-foreground shadow-sm hover:bg-muted"
-              >
-                <span aria-hidden className="h-2 w-2 rounded-full bg-primary" />
-                Running {running}
-              </button>
+                  <span className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-foreground">
+                    <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+                    {running} running
+                  </span>
                 ) : null}
               </span>
             ) : null
           }
+          shortcuts={{ t: () => setTerminalOpen(!terminalOpen), T: () => setTerminalOpen(!terminalOpen) }}
+          renderCanvasLayer={({ nodes, selectedId, select }) =>
+            terminalOpen ? <ToolCallTerminal nodes={nodes} selectedId={selectedId} onSelect={select} onClose={() => setTerminalOpen(false)} /> : null
+          }
+          renderOverview={(context) => (
+            <Overview
+              context={context}
+              projects={state.projects}
+              projectIds={projectIds}
+              onProjects={changeProjects}
+              windowMs={windowMs}
+              defaultWindowMs={defaults.windowMs}
+              onWindow={setWindowPick}
+              focusNodes={shown.nodes}
+              picked={picked}
+              onPicked={setPicked}
+              activeOnly={activeOnly}
+              onActiveOnly={setActiveOnly}
+              colorBy={colorBy}
+              onColorBy={setColorBy}
+              onJumpToNeeds={jumpToNeeds}
+              terminalOpen={terminalOpen}
+              onTerminal={setTerminalOpen}
+              onReset={resetFilters}
+            />
+          )}
           surface="canvas"
           focusSelected={focusIds}
           // A thread always has turns to fetch; a turn only if it has steps.
@@ -530,34 +525,49 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
           }
           loadChildren={(node) => loadChildren(sdk, node, turnsPerThread.current, pinned.current)}
           reveal={reveal}
-          renderSidebarExtra={(node) => {
-            const threadId = node.kind === "thread" ? node.meta?.threadId : undefined;
-            const needs = needsOf(node.meta);
-            const panel = needs ? (
-              <NeedsPanel key={node.id} needs={needs} answer={(target, answer) => rpcRef.current.call("answerNeeds", { needs: target, answer })} />
-            ) : null;
-            if (typeof threadId !== "string") return panel;
-            const tabs = (
-              <ThreadTabs
-                turns={
-                  <ActivitySection
-                    sdk={sdk}
-                    threadId={threadId}
-                    turnsPerThread={filter.turnsPerThread}
-                    version={reloads.get(node.id) ?? 0}
-                    onReveal={(nodeId, inCanvas) => revealEntry(threadId, nodeId, inCanvas)}
-                  />
-                }
-                tools={<StepLog sdk={sdk} threadId={threadId} version={reloads.get(node.id) ?? 0} onReveal={(nodeId) => revealEntry(threadId, nodeId, true)} />}
+          renderNodeFooter={(node) => {
+            const chatThread = node.meta?.threadId;
+            if (typeof chatThread !== "string") return null;
+            return (
+              <ChatComposer
+                sdk={sdk}
+                threadId={chatThread}
+                threadLabel={threadLabel(chatThread)}
+                onSent={(message) => setSent((prev) => new Map(prev).set(chatThread, [...(prev.get(chatThread) ?? []), message]))}
+                onOpenThread={() => navigate.toThread(chatThread)}
               />
             );
-            return panel ? (
-              <div className="flex flex-col gap-4">
-                {panel}
-                {tabs}
-              </div>
-            ) : (
-              tabs
+          }}
+          renderSidebarExtra={(node) => {
+            const threadId = node.kind === "thread" ? node.meta?.threadId : undefined;
+            const chatThread = node.meta?.threadId;
+            const needs = needsOf(node.meta);
+            return (
+              <>
+                {needs ? <NeedsPanel key={node.id} needs={needs} answer={(target, answer) => rpcRef.current.call("answerNeeds", { needs: target, answer })} /> : null}
+                {typeof threadId === "string" ? (
+                  <>
+                    <ActivitySection
+                      sdk={sdk}
+                      threadId={threadId}
+                      turnsPerThread={filter.turnsPerThread}
+                      version={reloads.get(node.id) ?? 0}
+                      onReveal={(nodeId, inCanvas) => revealEntry(threadId, nodeId, inCanvas)}
+                    />
+                    <StepLog sdk={sdk} threadId={threadId} version={reloads.get(node.id) ?? 0} onReveal={(nodeId) => revealEntry(threadId, nodeId, true)} />
+                  </>
+                ) : null}
+                {typeof chatThread === "string" ? (
+                  <ChatHistory
+                    sdk={sdk}
+                    threadId={chatThread}
+                    threadLabel={threadLabel(chatThread)}
+                    version={reloads.get(threadNodeId(chatThread)) ?? 0}
+                    working={RUNNING_STATES.has(state.threads.find((thread) => thread.id === chatThread)?.status ?? "")}
+                    pending={sent.get(chatThread) ?? []}
+                  />
+                ) : null}
+              </>
             );
           }}
           reloadChildren={reloads}

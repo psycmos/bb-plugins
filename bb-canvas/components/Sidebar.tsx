@@ -3,34 +3,12 @@
 // block for everything else a provider put in `meta`. A chat or replay feed
 // for `thread`/`turn` nodes is a later ticket, once there is a timeline to
 // lazily load into this same slot.
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { clampWidth, DEFAULT_WIDTH, fitWidth, maxWidthFor, MIN_WIDTH } from "../lib/clampWidth";
+import { useState, type ReactNode } from "react";
 import { curateMeta, type CanvasNode, type CuratedField, type CanvasStatus } from "../lib/types";
 import type { RelationGroup } from "../lib/relations";
 import { KindIcon, KIND_LABEL } from "./KindIcon";
-
-const WIDTH_KEY = "bb-canvas:sidebar-width";
-const KEY_STEP = 16;
-
-/** Never throws — same reasoning as the colour mode in CanvasView: no or a
- *  broken `localStorage` means the default width, not a crashed canvas. */
-function loadWidth(): number {
-  try {
-    const stored = localStorage.getItem(WIDTH_KEY);
-    // `Number(null)` is 0, which would clamp to the minimum instead of the default.
-    return stored === null ? DEFAULT_WIDTH : clampWidth(Number(stored));
-  } catch {
-    return DEFAULT_WIDTH;
-  }
-}
-
-function saveWidth(width: number): void {
-  try {
-    localStorage.setItem(WIDTH_KEY, String(width));
-  } catch {
-    // Not persisted; the width still holds for this session.
-  }
-}
+import { Accordion } from "./Accordion";
+import { SidePanel } from "./SidePanel";
 
 /** One fixed pill colour per status — the same precedence NodeCard's border
  *  uses, just as a background instead of an outline. */
@@ -84,32 +62,6 @@ const ACTION_STYLE = {
   fontWeight: 500,
   cursor: "pointer",
 } as const;
-
-const SIDEBAR_STYLE_ID = "bb-canvas-sidebar-styles";
-
-/** Hover and focus states need real selectors; injected once, like the
- *  pulse in NodeCard. */
-const SIDEBAR_CSS = `
-  .bb-canvas-action:hover { background: var(--muted); }
-  .bb-canvas-action:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
-  .bb-canvas-resize::after {
-    content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px;
-    background: transparent; transition: background 120ms ease-out;
-  }
-  .bb-canvas-resize:hover::after { background: var(--border); width: 2px; left: 2px; }
-  .bb-canvas-resize:focus-visible { outline: none; }
-  .bb-canvas-resize:focus-visible::after, .bb-canvas-resize:active::after {
-    background: var(--primary); width: 2px; left: 2px;
-  }
-`;
-
-function ensureSidebarStyles(): void {
-  if (typeof document === "undefined" || document.getElementById(SIDEBAR_STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = SIDEBAR_STYLE_ID;
-  style.textContent = SIDEBAR_CSS;
-  document.head.appendChild(style);
-}
 
 function SectionHeading({ children }: { children: string }) {
   return (
@@ -207,10 +159,9 @@ function FieldList({ fields }: { fields: { label: string; value: string }[] }) {
 /** A bundle's entries (each thought's text, each event's title) as their own
  *  readable items, separated, each long one behind its own "more" — not one
  *  run-together blob in the collapsed Details (BBP-206 R3 design). */
-function EntryList({ title, entries }: { title: string; entries: readonly string[] }) {
+function EntryList({ entries }: { entries: readonly string[] }) {
   return (
-    <section aria-label={title} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <SectionHeading>{`${title} (${entries.length})`}</SectionHeading>
+    <div>
       <ol style={{ margin: 0, padding: 0, listStyle: "none", fontSize: 12, lineHeight: 1.5 }}>
         {entries.map((entry, index) => (
           <li
@@ -226,7 +177,7 @@ function EntryList({ title, entries }: { title: string; entries: readonly string
           </li>
         ))}
       </ol>
-    </section>
+    </div>
   );
 }
 
@@ -258,6 +209,13 @@ export type SidebarProps = {
   extra?: ReactNode;
   /** Above everything else — the canvas's breadcrumb (BBP-298). */
   header?: ReactNode;
+  /** Pinned below the sections, outside the scroll — a chat composer. */
+  footer?: ReactNode;
+  /** In the always-open panel (BBP-313): a "← Overview" button replaces the
+   *  close button, and `onClose` is not shown. */
+  onBack?: () => void;
+  /** Extra buttons on the right of the panel header (collapse, say). */
+  headerActions?: ReactNode;
 };
 
 const FOCUSABLE_KINDS = new Set<CanvasNode["kind"]>(["crew", "graph-run", "thread"]);
@@ -272,7 +230,22 @@ function numberMeta(node: CanvasNode, key: string): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-export function Sidebar({ node, onClose, onOpenThread, onOpenRun, onOpenCrew, onOpenAtRow, relations = [], onSelect, onFocusThis, extra, header }: SidebarProps) {
+export function Sidebar({
+  node,
+  onClose,
+  onOpenThread,
+  onOpenRun,
+  onOpenCrew,
+  onOpenAtRow,
+  relations = [],
+  onSelect,
+  onFocusThis,
+  extra,
+  header,
+  footer,
+  onBack,
+  headerActions,
+}: SidebarProps) {
   const { curated, details: allDetails, debug } = curateMeta(node.kind, node.meta);
   // A bundle's `titles` render as their own list below, not again in Details.
   const entries = stringList(node.meta?.titles);
@@ -286,223 +259,159 @@ export function Sidebar({ node, onClose, onOpenThread, onOpenRun, onOpenCrew, on
   const threadId = onOpenThread && atRow === undefined ? stringMeta(node, "threadId") : undefined;
   const canFocusThis = onFocusThis !== undefined && FOCUSABLE_KINDS.has(node.kind);
   const hasActions = threadId !== undefined || runId !== undefined || crew !== undefined || atRow !== undefined || canFocusThis;
-  const [width, setWidth] = useState(loadWidth);
-  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
-  const asideRef = useRef<HTMLElement>(null);
-  // The row the sidebar shares with the canvas; 0 until measured.
-  const [containerWidth, setContainerWidth] = useState(0);
-  // `width` stays the user's choice (and what is stored); `shown` is that
-  // choice capped for a narrow panel, so widening the panel brings it back.
-  const shown = fitWidth(width, containerWidth);
-  const shownMax = maxWidthFor(containerWidth);
+  // Open/closed is remembered per kind: a tool call's Details stay open for
+  // the next tool call, not for the next thread (BBP-313).
+  const key = (section: string) => `node:${node.kind}:${section}`;
 
-  useEffect(() => {
-    const container = asideRef.current?.parentElement;
-    if (!container) return;
-    setContainerWidth(container.clientWidth);
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => setContainerWidth(container.clientWidth));
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => saveWidth(width), [width]);
-  useEffect(ensureSidebarStyles, []);
-
-  useEffect(() => {
-    // The handle sits on the left edge, so moving the pointer left widens.
-    const onMove = (event: globalThis.MouseEvent) => {
-      if (!drag.current) return;
-      setWidth(clampWidth(drag.current.startWidth + drag.current.startX - event.clientX));
-    };
-    const onUp = () => {
-      drag.current = null;
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, []);
-
-  const startDrag = (event: MouseEvent) => {
-    event.preventDefault();
-    drag.current = { startX: event.clientX, startWidth: shown };
-  };
-
-  const onKeyDown = (event: KeyboardEvent) => {
-    const next: Record<string, number> = {
-      // From what is on screen, so a key always moves the visible edge.
-      ArrowLeft: shown + KEY_STEP,
-      ArrowRight: shown - KEY_STEP,
-      Home: MIN_WIDTH,
-      End: shownMax,
-    };
-    if (!(event.key in next)) return;
-    event.preventDefault();
-    setWidth(clampWidth(next[event.key]));
-  };
+  const panelHeader = onBack ? (
+    <>
+      <button type="button" onClick={onBack} className="bb-canvas-action" style={{ ...ACTION_STYLE, border: "none", background: "transparent", padding: "0 6px", color: "var(--muted-foreground)" }}>
+        ← Overview
+      </button>
+      <span style={{ flex: 1 }} />
+      {headerActions}
+    </>
+  ) : (
+    <>
+      <span style={{ flex: 1 }} />
+      {headerActions}
+      <IconButton label="Close details" onClick={onClose}>
+        <path d="M4 4l8 8M12 4l-8 8" />
+      </IconButton>
+    </>
+  );
 
   return (
-    <aside
-      ref={asideRef}
-      aria-label={`Details for ${node.label}`}
-      // Scrolling a long details list must not pan the canvas underneath it
-      // (BBP-199) — React Flow skips its own wheel handling for this class.
-      className="nowheel"
-      style={{
-        position: "relative",
-        // border-box: the clamped value is the width on screen, padding and border included.
-        boxSizing: "border-box",
-        width: shown,
-        flexShrink: 0,
-        borderLeft: "1px solid var(--border)",
-        padding: "14px 16px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 16,
-        overflowY: "auto",
-        background: "var(--background)",
-        color: "var(--foreground)",
-      }}
-    >
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize details"
-        aria-valuenow={shown}
-        aria-valuemin={Math.min(MIN_WIDTH, shownMax)}
-        aria-valuemax={shownMax}
-        tabIndex={0}
-        onMouseDown={startDrag}
-        onKeyDown={onKeyDown}
-        className="bb-canvas-resize"
-        style={{ position: "absolute", left: -4, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 1 }}
-      />
-      {header}
-      <header style={{ display: "flex", alignItems: "start", gap: 10 }}>
-        <span
-          aria-hidden
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-            width: 28,
-            height: 28,
-            borderRadius: 6,
-            border: "1px solid var(--border)",
-            color: "var(--muted-foreground)",
-          }}
-        >
-          <KindIcon kind={node.kind} />
-        </span>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-            <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{KIND_LABEL[node.kind]}</span>
-            {node.status ? <StatusPill status={node.status} /> : null}
-          </div>
-          <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600, lineHeight: 1.3, overflowWrap: "anywhere" }}>
-            {node.label}
-          </h2>
-        </div>
-        <button
-          type="button"
-          aria-label="Close details"
-          onClick={onClose}
-          className="bb-canvas-action"
-          style={{ ...ACTION_STYLE, justifyContent: "center", width: 28, padding: 0, border: "none", background: "transparent", color: "var(--muted-foreground)" }}
-        >
-          <svg aria-hidden width={14} height={14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
-            <path d="M4 4l8 8M12 4l-8 8" />
-          </svg>
-        </button>
-      </header>
-      {curated.length > 0 ? (
-        <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <SectionHeading>{KIND_LABEL[node.kind]}</SectionHeading>
-          <FieldList fields={curated} />
-        </section>
-      ) : null}
-      {entries.length > 0 ? <EntryList title={entriesTitle} entries={entries} /> : null}
-      {relations.length > 0 ? (
-        <section aria-label="Relations" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {relations.map((group) => (
-            <div key={group.kind} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <SectionHeading>{group.kind}</SectionHeading>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {group.targets.map((target) => (
-                  <button
-                    key={target.id}
-                    type="button"
-                    onClick={() => onSelect?.(target.id)}
-                    className="bb-canvas-action"
-                    style={ACTION_STYLE}
-                  >
-                    {target.label}
-                  </button>
-                ))}
-              </div>
+    <SidePanel label={`Details for ${node.label}`} header={panelHeader}>
+      <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
+        {header ? <div style={{ padding: "8px 12px 0" }}>{header}</div> : null}
+        {/* Who and what this is: always needed, so never behind a fold. */}
+        <header style={{ display: "flex", alignItems: "start", gap: 10, padding: "12px", borderBottom: "1px solid var(--border)" }}>
+          <span
+            aria-hidden
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              color: "var(--muted-foreground)",
+            }}
+          >
+            <KindIcon kind={node.kind} />
+          </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>{KIND_LABEL[node.kind]}</span>
+              {node.status ? <StatusPill status={node.status} /> : null}
             </div>
-          ))}
-        </section>
-      ) : null}
-      {extra}
-      {hasActions ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {threadId !== undefined ? (
-            <button type="button" onClick={() => onOpenThread?.(threadId)} className="bb-canvas-action" style={ACTION_STYLE}>
-              Open thread
-            </button>
-          ) : null}
-          {runId !== undefined ? (
-            <button type="button" onClick={() => onOpenRun?.(runId)} className="bb-canvas-action" style={ACTION_STYLE}>
-              Open run
-            </button>
-          ) : null}
-          {crew !== undefined ? (
-            <button type="button" onClick={() => onOpenCrew?.(crew)} className="bb-canvas-action" style={ACTION_STYLE}>
-              Open crew
-            </button>
-          ) : null}
-          {atRow !== undefined ? (
-            <button type="button" onClick={() => onOpenAtRow?.(atRow.threadId, atRow.seq)} className="bb-canvas-action" style={ACTION_STYLE}>
-              Open in thread
-            </button>
-          ) : null}
-          {canFocusThis ? (
-            <button type="button" onClick={() => onFocusThis?.(node.id)} className="bb-canvas-action" style={ACTION_STYLE}>
-              Focus this
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {details.length > 0 ? <Collapsed title="Details" fields={details} /> : null}
-      {debug.length > 0 ? <Collapsed title="Debug" fields={debug} /> : null}
-    </aside>
+            <h2
+              title={node.label}
+              style={{
+                margin: 0,
+                fontSize: 14,
+                fontWeight: 600,
+                lineHeight: 1.3,
+                overflowWrap: "anywhere",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {node.label}
+            </h2>
+            {hasActions ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {threadId !== undefined ? (
+                  <button type="button" onClick={() => onOpenThread?.(threadId)} className="bb-canvas-action" style={ACTION_STYLE}>
+                    Open thread
+                  </button>
+                ) : null}
+                {runId !== undefined ? (
+                  <button type="button" onClick={() => onOpenRun?.(runId)} className="bb-canvas-action" style={ACTION_STYLE}>
+                    Open run
+                  </button>
+                ) : null}
+                {crew !== undefined ? (
+                  <button type="button" onClick={() => onOpenCrew?.(crew)} className="bb-canvas-action" style={ACTION_STYLE}>
+                    Open crew
+                  </button>
+                ) : null}
+                {atRow !== undefined ? (
+                  <button type="button" onClick={() => onOpenAtRow?.(atRow.threadId, atRow.seq)} className="bb-canvas-action" style={ACTION_STYLE}>
+                    Open in thread
+                  </button>
+                ) : null}
+                {canFocusThis ? (
+                  <button type="button" onClick={() => onFocusThis?.(node.id)} className="bb-canvas-action" style={ACTION_STYLE}>
+                    Focus this
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </header>
+        {curated.length > 0 ? (
+          <Accordion title={KIND_LABEL[node.kind]} storageKey={key("curated")}>
+            <FieldList fields={curated} />
+          </Accordion>
+        ) : null}
+        {entries.length > 0 ? (
+          <Accordion title={entriesTitle} summary={entries.length} storageKey={key("entries")}>
+            <EntryList entries={entries} />
+          </Accordion>
+        ) : null}
+        {relations.length > 0 ? (
+          <Accordion title="Relations" summary={relations.reduce((sum, group) => sum + group.targets.length, 0)} storageKey={key("relations")}>
+            {relations.map((group) => (
+              <div key={group.kind} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <SectionHeading>{group.kind}</SectionHeading>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {group.targets.map((target) => (
+                    <button key={target.id} type="button" onClick={() => onSelect?.(target.id)} className="bb-canvas-action" style={ACTION_STYLE}>
+                      {target.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </Accordion>
+        ) : null}
+        {extra}
+        {details.length > 0 ? (
+          <Accordion title="Details" summary={details.length} defaultOpen={false} storageKey={key("details")}>
+            <FieldList fields={details} />
+          </Accordion>
+        ) : null}
+        {debug.length > 0 ? (
+          <Accordion title="Debug" summary={debug.length} defaultOpen={false} storageKey={key("debug")}>
+            <FieldList fields={debug} />
+          </Accordion>
+        ) : null}
+        {footer ? <div style={{ marginTop: "auto", position: "sticky", bottom: 0, padding: 12, borderTop: "1px solid var(--border)", background: "var(--background)" }}>{footer}</div> : null}
+      </div>
+    </SidePanel>
   );
 }
 
-/** A closed-by-default block of fields under an uppercase summary. */
-function Collapsed({ title, fields }: { title: string; fields: CuratedField[] }) {
+/** A 28 px square, borderless icon button for a panel header. */
+export function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
-    <details>
-      <summary
-        style={{
-          cursor: "pointer",
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: "0.04em",
-          textTransform: "uppercase",
-          color: "var(--muted-foreground)",
-        }}
-      >
-        {title}
-      </summary>
-      <div style={{ marginTop: 8 }}>
-        <FieldList fields={fields} />
-      </div>
-    </details>
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="bb-canvas-action"
+      style={{ ...ACTION_STYLE, justifyContent: "center", width: 28, padding: 0, border: "none", background: "transparent", color: "var(--muted-foreground)" }}
+    >
+      <svg aria-hidden width={14} height={14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        {children}
+      </svg>
+    </button>
   );
 }
