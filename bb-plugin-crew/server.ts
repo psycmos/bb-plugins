@@ -18,7 +18,7 @@ import { liveViews, type ActivityView } from "./lib/activity";
 import { reasonCounts } from "./lib/topology";
 import { DEFAULT_POLICY } from "./lib/policy";
 import { registerAgentTools, type Confirm } from "./lib/agent";
-import { crewCanvasLayer, crewOwnsCanvasPage } from "./lib/canvas-layer";
+import { crewCanvasLayer } from "./lib/canvas-layer";
 import { CONTRACT_VERSION } from "./lib/contract";
 import { openLayout } from "./lib/layout";
 import { runCli, CLI_COMMANDS, type CliContext } from "./lib/cli";
@@ -455,11 +455,7 @@ export const rpcContract = defineRpcContract({
       frames: z.array(canvasFrameSchema),
     }),
   },
-  /** Whether crew shows the canvas page itself: only while graph-studio is not active. */
-  canvasPage: {
-    input: z.object({}).default({}),
-    output: z.object({ visible: z.boolean() }),
-  },
+
 
   /** Sidebar row icons and the Needs-you count, for every bound member thread. */
   rowStatuses: {
@@ -1132,14 +1128,6 @@ export default async function plugin(bb: BbPluginApi) {
         // Unknown needs cost only the marker, not the layer.
       }
       return { contractVersion: CONTRACT_VERSION, ...layer };
-    },
-    canvasPage: async () => {
-      try {
-        return { visible: crewOwnsCanvasPage((await bb.sdk.plugins.list()).plugins) };
-      } catch {
-        // Unsure whether graph-studio is there: showing a second page beats showing none.
-        return { visible: true };
-      }
     },
     memberReply: ({ messageId }) => service.contract.memberReply(messageId),
     rowStatuses: () => {

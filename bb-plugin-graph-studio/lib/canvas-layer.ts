@@ -54,7 +54,6 @@ export function graphCanvasLayer(
   projectId: string,
   runs: CanvasRun[],
   memberByThread: ReadonlyMap<string, string>,
-  steps: (layer: CanvasLayer, run: CanvasRun, runId: string) => void = treeSteps,
 ): CanvasLayer {
   const layer: CanvasLayer = { nodes: [], edges: [], expanded: [] };
   const parentOf = (run: CanvasRun) =>
@@ -70,7 +69,7 @@ export function graphCanvasLayer(
     const sorted = [...group].sort((a, b) => b.createdAt - a.createdAt);
     const shown = sorted.filter((run, index) => index === 0 || inProgress(run));
     const folded = sorted.filter((run) => !shown.includes(run));
-    for (const run of shown) addRun(layer, run, parent, steps);
+    for (const run of shown) addRun(layer, run, parent);
     if (folded.length > 0) {
       const more = `more-runs:${parent}`;
       layer.nodes.push({
@@ -80,13 +79,13 @@ export function graphCanvasLayer(
         parentId: parent,
         meta: { placeholder: true, runIds: folded.map((run) => run.id) },
       });
-      for (const run of folded) addRun(layer, run, more, steps);
+      for (const run of folded) addRun(layer, run, more);
     }
   }
   return layer;
 }
 
-function addRun(layer: CanvasLayer, run: CanvasRun, parentId: string, steps: (layer: CanvasLayer, run: CanvasRun, runId: string) => void): void {
+function addRun(layer: CanvasLayer, run: CanvasRun, parentId: string): void {
   const id = runNodeId(run.id);
   const latest = new Map<string, { attempt: number; status: StepStatus }>();
   for (const step of run.nodeRuns) {
@@ -119,8 +118,8 @@ function addRun(layer: CanvasLayer, run: CanvasRun, parentId: string, steps: (la
     },
   });
 
-  if (steps === flowSteps) layer.nodes[layer.nodes.length - 1]!.meta!.flow = true;
-  steps(layer, run, id);
+  layer.nodes[layer.nodes.length - 1]!.meta!.flow = true;
+  flowSteps(layer, run, id);
 }
 
 function latestOf(run: CanvasRun) {
@@ -130,37 +129,6 @@ function latestOf(run: CanvasRun) {
     if (!seen || step.attempt >= seen.attempt) latest.set(step.nodeId, step);
   }
   return latest;
-}
-
-/** The Activity Canvas's steps: one row per graph node under the run. */
-function treeSteps(layer: CanvasLayer, run: CanvasRun, id: string): void {
-  const latest = latestOf(run);
-  for (const node of run.graph.nodes) {
-    const last = latest.get(node.id);
-    const step: CanvasNode = {
-      id: stepNodeId(run.id, node.id),
-      kind: "step",
-      label: node.label,
-      ...(last ? { status: STEP_STATUS[last.status] } : {}),
-      parentId: id,
-      meta: { nodeId: node.id, attempts: last?.attempt ?? 0 },
-    };
-    layer.nodes.push(step);
-  }
-
-  // Only loops are declared: the tree already draws run → step, and forward
-  // edges between steps are graph-studio's own detail view.
-  // A finished loop stays neutral (BBP-214 stage 1: "taken" removed) — only
-  // one currently running its second attempt lights up as "now".
-  const pseudo = new Set([START_NODE, END_NODE]);
-  const nowKeys = now(run);
-  for (const edge of layoutGraph(run.graph).edges) {
-    if (!edge.isBack || pseudo.has(edge.from) || pseudo.has(edge.to)) continue;
-    const back: CanvasEdge = { from: stepNodeId(run.id, edge.from), to: stepNodeId(run.id, edge.to), variant: "back" };
-    if (edge.label) back.label = edge.label;
-    if (nowKeys.has(edge.key)) back.state = "now";
-    layer.edges.push(back);
-  }
 }
 
 /**
@@ -174,6 +142,7 @@ export function flowSteps(layer: CanvasLayer, run: CanvasRun, runId: string): vo
   const latest = latestOf(run);
   const layout = layoutGraph(run.graph);
   const pseudo = new Set([START_NODE, END_NODE]);
+  const nowKeys = now(run);
   const placedReal = layout.nodes.filter((node) => !pseudo.has(node.id));
   const minLayer = Math.min(...placedReal.map((node) => node.layer), Number.POSITIVE_INFINITY);
   const laneOf = new Map<string, number>();
@@ -235,6 +204,8 @@ export function flowSteps(layer: CanvasLayer, run: CanvasRun, runId: string): vo
     if (edge.label) step.label = edge.label;
     const decided = !edge.isBack && decisions.has(edge.from) && (exits.get(edge.from) ?? []).some((other) => other !== edge.to && ran(other));
     if (decided && !ran(edge.to)) step.state = "skipped";
+    // A loop lights up while its target runs its next attempt (BBP-146).
+    if (edge.isBack && nowKeys.has(edge.key)) step.state = "now";
     layer.edges.push(step);
   }
   foldFlow(layer, runId);
@@ -351,34 +322,6 @@ export function foldFlow(layer: CanvasLayer, runId: string): void {
 }
 
 /**
- * The whole page tree: agents → project → crew's layer, with the runs hung
- * into it. Crew is optional — when `crewLayer` fails (not installed, disabled,
- * crashed) the page still renders, just without the crew level; `crew` says
- * which case the page is in.
- */
-export async function canvasPageLayer(args: {
-  projectId: string;
-  projectLabel: string;
-  runs: CanvasRun[];
-  crewLayer: () => Promise<CanvasLayer>;
-}): Promise<CanvasLayer & { crew: boolean }> {
-  let crew: CanvasLayer = EMPTY_LAYER;
-  let available = true;
-  try {
-    crew = await args.crewLayer();
-  } catch {
-    available = false;
-  }
-  const memberByThread = new Map<string, string>();
-  for (const node of crew.nodes) {
-    const threadId = node.kind === "member" ? node.meta?.threadId : undefined;
-    if (typeof threadId === "string") memberByThread.set(threadId, node.id);
-  }
-  const page = withRoots(args.projectId, args.projectLabel, mergeLayers(crew, graphCanvasLayer(args.projectId, args.runs, memberByThread)));
-  return { ...page, crew: available };
-}
-
-/**
  * BBP-191: this plugin's layer for the standalone Canvas plugin. Only the
  * runs — the Canvas asks crew itself. A run hangs under the thread it was
  * started from (the Canvas's `thread:<id>` node, which is also how it draws
@@ -387,7 +330,7 @@ export async function canvasPageLayer(args: {
  */
 export function canvasExtensionLayer(projectId: string, runs: CanvasRun[]): CanvasLayer & { frames: [] } {
   const byThread = new Map(runs.flatMap((run) => (run.threadId !== null ? [[run.threadId, `thread:${run.threadId}`] as const] : [])));
-  const layer = graphCanvasLayer(projectId, runs, byThread, flowSteps);
+  const layer = graphCanvasLayer(projectId, runs, byThread);
   const project = projectNodeId(projectId);
   return {
     ...layer,

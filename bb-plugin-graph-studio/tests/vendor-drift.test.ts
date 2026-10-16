@@ -19,7 +19,8 @@ function files(dir: string): Map<string, string> {
       else out.set(relative(dir, path), readFileSync(path, "utf8"));
     }
   };
-  for (const sub of ["lib", "components"]) walk(join(dir, sub));
+  // Only lib/: the UI components belong to the Canvas plugin (BBP-193).
+  walk(join(dir, "lib"));
   return out;
 }
 

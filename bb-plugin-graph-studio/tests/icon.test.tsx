@@ -27,7 +27,7 @@ describe("the Graph Studio icon", () => {
   });
 
   it("is the icon of the nav panel and the thread panel action, not Workflow", () => {
-    expect(app.navPanels.map((entry) => entry.icon)).toEqual([GRAPH_STUDIO_ICON, GRAPH_STUDIO_ICON]);
+    expect(app.navPanels.map((entry) => entry.icon)).toEqual([GRAPH_STUDIO_ICON]);
     expect(app.threadPanelActions.map((entry) => entry.icon)).toEqual([GRAPH_STUDIO_ICON]);
     expect([...app.navPanels, ...app.threadPanelActions].some((entry) => entry.icon === "Workflow")).toBe(false);
   });

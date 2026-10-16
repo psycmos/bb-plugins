@@ -4,7 +4,6 @@ import { GraphStudioPanel } from "./components/graph-studio-panel";
 import { GraphStudioRunBanner } from "./components/run-banner";
 import { GraphRunCard } from "./components/run-card";
 import { GRAPH_STUDIO_ICON, GraphStudioFlow } from "./components/graph-studio-icon";
-import { CanvasPage } from "./components/canvas-page";
 
 /** `params` crosses the host boundary as JSON — read it, never trust it. */
 function runIdFrom(params: unknown): string | null {
@@ -23,17 +22,6 @@ export default definePluginApp((app) => {
     path: "studio",
     component: () => <GraphStudioPanel />,
   });
-  // BBP-131: the shared canvas — crews and graph runs in one navigation tree.
-  // Graph Studio always shows it; crew shows its own copy only when this
-  // plugin is not active (see bb-plugin-crew/app.tsx).
-  app.slots.navPanel({
-    id: "canvas",
-    title: "Activity Canvas",
-    icon: GRAPH_STUDIO_ICON,
-    path: "canvas",
-    component: ({ subPath }) => <CanvasPage subPath={subPath} />,
-  });
-
   app.slots.threadPanelAction({
     id: "studio",
     title: "Graph Studio",

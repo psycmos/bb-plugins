@@ -51,7 +51,7 @@ import { SqliteCheckpointer } from "./lib/checkpointer";
 import { MIGRATIONS, createStore, type RunRow, type RunStatus } from "./lib/store";
 import { RENAMED_TEMPLATES, TEMPLATES, searchGraphs } from "./lib/templates";
 import { whileWorkspaceBusy } from "./lib/workspace";
-import { canvasExtensionLayer, canvasPageLayer } from "./lib/canvas-layer";
+import { canvasExtensionLayer } from "./lib/canvas-layer";
 
 /** Runs the canvas keeps whatever their age (BBP-191). */
 const ACTIVE_RUN = new Set(["running", "stopping", "waiting-human"]);
@@ -217,14 +217,6 @@ export const rpcContract = defineRpcContract({
   getRun: {
     input: z.object({ id: z.string() }),
     output: z.object({ run: runSchema.nullable() }),
-  },
-  /**
-   * BBP-131: the canvas page's tree for one project — crew's crews and
-   * members (when crew is installed) with this plugin's runs hung into them.
-   */
-  canvasLayer: {
-    input: z.object({ projectId: z.string().min(1) }),
-    output: canvasLayerSchema.extend({ crew: z.boolean() }),
   },
   /** BBP-191: only this plugin's runs, for the standalone Canvas plugin. */
   canvasExtensionLayer: {
@@ -1807,33 +1799,6 @@ export default function graphStudio(bb: BbPluginApi) {
         return dto && dto.projectId === projectId && (sinceMs === undefined || dto.createdAt >= sinceMs || ACTIVE_RUN.has(dto.status)) ? [dto] : [];
       });
       return canvasExtensionLayer(projectId, runs);
-    },
-    canvasLayer: async ({ projectId }) => {
-      let projectLabel = projectId;
-      try {
-        projectLabel = (await bb.sdk.projects.get({ projectId })).name ?? projectId;
-      } catch {
-        // The id is a worse label, not a reason to fail the page.
-      }
-      const runs = store.listRuns().flatMap((row) => {
-        const dto = toDto(row.id);
-        return dto && dto.projectId === projectId ? [dto] : [];
-      });
-      return canvasPageLayer({
-        projectId,
-        projectLabel,
-        runs,
-        crewLayer: async () => {
-          const { contractVersion, ...layer } = await bb.sdk.plugins.callRpc({
-            pluginId: CREW_PLUGIN_ID,
-            method: "canvasLayer",
-            input: { projectId },
-            outputSchema: crewCanvasLayerSchema,
-          });
-          if (contractVersion !== CREW_CONTRACT_VERSION) throw new Error(`crew contract ${contractVersion}`);
-          return layer;
-        },
-      });
     },
     listRuns: ({ threadId }) => {
       const rows = threadId ? store.listRunsByThread(threadId) : store.listRuns();

@@ -32,7 +32,6 @@ import { CrewFileEditor } from "./components/crew-file-editor";
 import { CREW_ICON, CrewTeam } from "./components/crew-icon";
 import { ConfirmInteraction, CREW_NAME, CrewDirectiveCard, CrewPanelHeader, MemberBadge } from "./components/crew-surfaces";
 import { MemberCard, TopologyCanvas, TopologyLegend, type MemberAction } from "./components/crew-topology";
-import { CanvasPage } from "./components/canvas-page";
 import { OverviewCanvas } from "./components/crew-overview-canvas";
 import { OverviewToolbar } from "./components/crew-overview-toolbar";
 import { DEFAULT_OVERVIEW_FILTERS, type OverviewFilters } from "./lib/overview-graph";
@@ -170,50 +169,12 @@ function HeaderContent() {
   const { errors, decisions } = useNeedsYou();
   return (
     <div className="flex items-center gap-2">
-      <CanvasEntry />
       <NeedsYouBadge
         errors={errors}
         decisions={decisions}
         title="Members that need you, across all projects — the project switch shows them per project"
       />
     </div>
-  );
-}
-
-/** BBP-179: the way into crew's own canvas, which has no nav entry (Graph
- *  Studio owns "Activity Canvas"). Hidden while Graph Studio is active —
- *  crews/canvas would only point there. */
-function CanvasEntry() {
-  const rpc = useRpcBridge();
-  const navigate = useBbNavigate();
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    rpc.call("canvasPage", {}).then(
-      (result) => !cancelled && setVisible(result.visible),
-      // Same fallback as the page: unsure about Graph Studio, offer the way in.
-      () => !cancelled && setVisible(true),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [rpc]);
-  if (!visible) return null;
-  return (
-    <button
-      type="button"
-      onClick={() => navigate.toPluginPanel("crews", { subPath: "canvas" })}
-      title="Crews and members as one navigation tree"
-      className="flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 text-xs text-foreground hover:bg-muted"
-    >
-      <svg aria-hidden width={12} height={12} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-        <rect x="1.5" y="6" width="4" height="4" rx="1" />
-        <rect x="10.5" y="2" width="4" height="4" rx="1" />
-        <rect x="10.5" y="10" width="4" height="4" rx="1" />
-        <path d="M5.5 8h2.5M8 4v8M8 4h2.5M8 12h2.5" />
-      </svg>
-      Activity canvas
-    </button>
   );
 }
 
@@ -1700,19 +1661,6 @@ async function crewOfThread(threadId: string | null) {
   return (await rpcBridge.call("memberOfThread", { threadId })).member;
 }
 
-/**
- * BBP-179: BB's nav gets exactly one "Activity Canvas", and it is Graph
- * Studio's — its page already pulls crew's layer in over RPC, so it shows
- * crews and graph runs together. Nav entries are registered synchronously,
- * with no way to ask whether Graph Studio is installed, so crew registers
- * none and serves its own canvas (for an install without Graph Studio) under
- * `crews/canvas` instead.
- */
-function CrewsRoute({ subPath = "" }: { subPath?: string }) {
-  const [first, ...rest] = subPath.split("/");
-  return first === "canvas" ? <CanvasPage subPath={rest.join("/")} /> : <CrewsPage />;
-}
-
 export default definePluginApp((app) => {
   app.experimental_icons.register({ name: CREW_ICON, component: CrewTeam });
   app.slots.navPanel({
@@ -1720,7 +1668,7 @@ export default definePluginApp((app) => {
     title: "Crews",
     icon: CREW_ICON,
     path: "crews",
-    component: CrewsRoute,
+    component: CrewsPage,
     headerContent: HeaderContent,
     experimental_sidebarAccessory: SidebarAccessory,
   });

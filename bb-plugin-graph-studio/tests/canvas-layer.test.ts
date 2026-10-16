@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasPageLayer, graphCanvasLayer, type CanvasRun } from "../lib/canvas-layer";
+import { graphCanvasLayer, type CanvasRun } from "../lib/canvas-layer";
 import { graphSchema } from "../lib/graph";
 
 // a → b → c, c loops back to a.
@@ -33,14 +33,14 @@ describe("graphCanvasLayer", () => {
         { nodeId: "b", attempt: 1, status: "running" },
       ] }),
     ], new Map());
-    expect(layer.nodes).toEqual([
-      { id: "graph-run:r1", kind: "graph-run", label: "Loop", status: "running", parentId: "project:p1",
-        meta: { runId: "r1", graphId: "loop", status: "running", threadId: null, started: "1970-01-01 00:00 UTC", steps: "1/3", progress: ["done", "running", "todo"] } },
-      { id: "step:r1:a", kind: "step", label: "Plan", status: "done", parentId: "graph-run:r1", meta: { nodeId: "a", attempts: 2 } },
-      { id: "step:r1:b", kind: "step", label: "Build", status: "running", parentId: "graph-run:r1", meta: { nodeId: "b", attempts: 1 } },
-      { id: "step:r1:c", kind: "step", label: "Check", parentId: "graph-run:r1", meta: { nodeId: "c", attempts: 0 } },
+    expect(layer.nodes[0]).toMatchObject({ id: "graph-run:r1", kind: "graph-run", label: "Loop", status: "running", parentId: "project:p1",
+      meta: { runId: "r1", steps: "1/3", progress: ["done", "running", "todo"], flow: true } });
+    expect(layer.nodes.slice(1).map((n) => [n.id, n.status, n.meta?.attempts])).toEqual([
+      ["step:r1:a", "done", 2],
+      ["step:r1:b", "running", 1],
+      ["step:r1:c", undefined, 0],
     ]);
-    expect(layer.edges).toEqual([{ from: "step:r1:c", to: "step:r1:a", variant: "back", label: "retry" }]);
+    expect(layer.edges.filter((e) => e.variant === "back")).toEqual([{ from: "step:r1:c", to: "step:r1:a", variant: "back", label: "retry" }]);
     expect(layer.expanded).toEqual([]);
   });
 
@@ -79,45 +79,6 @@ describe("graphCanvasLayer sidebar fields (BBP-179 acceptance)", () => {
   });
 });
 
-describe("canvasPageLayer", () => {
-  const crewLayer = {
-    nodes: [
-      { id: "crew:trio", kind: "crew" as const, label: "trio", parentId: "project:p1" },
-      { id: "member:dev@trio", kind: "member" as const, label: "dev", parentId: "crew:trio", meta: { threadId: "t1" } },
-    ],
-    edges: [],
-    expanded: ["crew:trio"],
-  };
-
-  it("roots crew's layer and the runs under agents → project, runs under their member", async () => {
-    const page = await canvasPageLayer({
-      projectId: "p1", projectLabel: "Shop", runs: [run({ threadId: "t1" })], crewLayer: async () => crewLayer,
-    });
-    expect(page.crew).toBe(true);
-    expect(page.nodes.map((node) => [node.id, node.parentId])).toEqual([
-      ["agents", null],
-      ["project:p1", "agents"],
-      ["crew:trio", "project:p1"],
-      ["member:dev@trio", "crew:trio"],
-      ["graph-run:r1", "member:dev@trio"],
-      ["step:r1:a", "graph-run:r1"],
-      ["step:r1:b", "graph-run:r1"],
-      ["step:r1:c", "graph-run:r1"],
-    ]);
-    expect(page.expanded).toEqual(["agents", "project:p1", "crew:trio"]);
-  });
-
-  it("negative: crew missing (callRpc throws) → page without the crew level, runs under the project, no throw", async () => {
-    const page = await canvasPageLayer({
-      projectId: "p1", projectLabel: "Shop", runs: [run({ threadId: "t1" })],
-      crewLayer: async () => { throw new Error('plugin "crew" is not installed'); },
-    });
-    expect(page.crew).toBe(false);
-    expect(page.nodes.some((node) => node.kind === "crew" || node.kind === "member")).toBe(false);
-    expect(page.nodes.find((node) => node.id === "graph-run:r1")!.parentId).toBe("project:p1");
-  });
-});
-
 describe("back-edge state (BBP-146 AC 7)", () => {
   const loop = (target: "running" | "done" | "skipped") =>
     graphCanvasLayer("p1", [run({ status: "running", nodeRuns: [
@@ -125,7 +86,7 @@ describe("back-edge state (BBP-146 AC 7)", () => {
       { nodeId: "b", attempt: 1, status: "done" },
       { nodeId: "c", attempt: 1, status: "done" },
       { nodeId: "a", attempt: 2, status: target },
-    ] })], new Map()).edges;
+    ] })], new Map()).edges.filter((e) => e.variant === "back");
 
   it("is 'now' only while the loop's target runs its second attempt", () => {
     expect(loop("running")).toEqual([{ from: "step:r1:c", to: "step:r1:a", variant: "back", label: "retry", state: "now" }]);

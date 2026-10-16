@@ -158,10 +158,3 @@ export function crewTopologyFrame(
 
 export const GRAPH_STUDIO_PLUGIN_ID = "graph-studio";
 
-/** Plugin states in which graph-studio is (or is about to be) serving its page. */
-const ACTIVE = new Set(["running", "starting", "degraded", "needs-configuration"]);
-
-/** `bb.sdk.plugins.list()` entries; true when crew must show the canvas page itself. */
-export function crewOwnsCanvasPage(plugins: { id: string; enabled: boolean; status: string }[]): boolean {
-  return !plugins.some((plugin) => plugin.id === GRAPH_STUDIO_PLUGIN_ID && plugin.enabled && ACTIVE.has(plugin.status));
-}

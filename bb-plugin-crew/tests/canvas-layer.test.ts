@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crewCanvasLayer, crewFrameId, crewNameFromFrameId, crewOwnsCanvasPage, crewTopologyFrame, memberNodeId } from "../lib/canvas-layer";
+import { crewCanvasLayer, crewFrameId, crewNameFromFrameId, crewTopologyFrame, memberNodeId } from "../lib/canvas-layer";
 import type { MemberInfo } from "../lib/contract";
 
 const member = (over: Partial<MemberInfo>): MemberInfo => ({
@@ -108,32 +108,13 @@ describe("crewNameFromFrameId", () => {
   });
 });
 
-describe("crewOwnsCanvasPage", () => {
-  const gs = (over: Partial<{ enabled: boolean; status: string }> = {}) => ({ id: "graph-studio", enabled: true, status: "running", ...over });
-  it("shows the page only while graph-studio is not active", () => {
-    expect(crewOwnsCanvasPage([])).toBe(true);
-    expect(crewOwnsCanvasPage([{ id: "crew", enabled: true, status: "running" }])).toBe(true);
-    expect(crewOwnsCanvasPage([gs({ enabled: false })])).toBe(true);
-    expect(crewOwnsCanvasPage([gs({ status: "error" })])).toBe(true);
-  });
-  it("negative: an active graph-studio wins, the crew page stays hidden", () => {
-    expect(crewOwnsCanvasPage([gs()])).toBe(false);
-    expect(crewOwnsCanvasPage([gs({ status: "starting" })])).toBe(false);
-  });
-});
-
-describe("canvasLayer / canvasPage RPC", () => {
-  it("serves the crew layer with contractVersion and tells whether crew owns the page", async () => {
+describe("canvasLayer RPC", () => {
+  it("serves the crew layer with contractVersion", async () => {
     const { createFakePluginHost } = await import("@get-bb/plugin-sdk/testing");
     const { default: plugin } = await import("../server");
     const { bb, harness } = createFakePluginHost({ pluginId: "crew" });
-    let plugins: { id: string; enabled: boolean; status: string }[] = [];
-    harness.sdk.stub("plugins.list", async () => ({ plugins }) as never);
     await plugin(bb);
     expect(await harness.behavior.callRpc("canvasLayer", { projectId: "p1" })).toEqual({ contractVersion: 1, nodes: [], edges: [], expanded: [], frames: [] });
-    expect(await harness.behavior.callRpc("canvasPage", {})).toEqual({ visible: true });
-    plugins = [{ id: "graph-studio", enabled: true, status: "running" }];
-    expect(await harness.behavior.callRpc("canvasPage", {})).toEqual({ visible: false });
     await harness.lifecycle.dispose();
   });
 
@@ -149,16 +130,6 @@ describe("canvasLayer / canvasPage RPC", () => {
     const parsed = rpcContract.canvasLayer.output.parse(layer);
     expect(parsed.edges).toEqual(layer.edges);
     expect(parsed.edges[0]).toMatchObject({ relation: true, links: [{ kind: "assigns_to" }, { kind: "escalates_to" }] });
-  });
-
-  it("negative: plugins.list failing keeps the page visible rather than hiding the canvas everywhere", async () => {
-    const { createFakePluginHost } = await import("@get-bb/plugin-sdk/testing");
-    const { default: plugin } = await import("../server");
-    const { bb, harness } = createFakePluginHost({ pluginId: "crew" });
-    harness.sdk.stub("plugins.list", async () => { throw new Error("down"); });
-    await plugin(bb);
-    expect(await harness.behavior.callRpc("canvasPage", {})).toEqual({ visible: true });
-    await harness.lifecycle.dispose();
   });
 });
 
