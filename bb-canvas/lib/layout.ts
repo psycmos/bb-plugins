@@ -9,11 +9,11 @@
 // within their shared column.
 import { selectedPathEdges } from "./selected-path";
 import type { CanvasEdge, CanvasEdgeState, CanvasFrame, CanvasNode } from "./types";
-import { sizeOf, TIER_SIZE } from "./tiers";
+import { sizeOfNode, TIER_SIZE } from "./tiers";
 
 /** Card tier's size, kept as the default export for callers that still want
  *  one constant (tests, the back-edge lane) — every node's own size now
- *  comes from `sizeOf(node.kind)` instead. */
+ *  comes from `sizeOfNode(node)` instead. */
 export const NODE_WIDTH = TIER_SIZE.card.width;
 export const NODE_HEIGHT = TIER_SIZE.card.height;
 export const COLUMN_GAP = 44;
@@ -157,7 +157,7 @@ export function layoutTree(
       const lanes = layers.get(layer)!.sort((a, b) => laneOf(a) - laneOf(b));
       // Each lane: the step card, and below it its own open activity.
       const stacks = lanes.map((node) => {
-        const size = sizeOf(node.kind);
+        const size = sizeOfNode(node);
         const sub = expanded.has(node.id) ? subtree(node) : null;
         return { node, size, sub, height: size.height + (sub ? 10 + sub.height : 0), width: Math.max(size.width, sub ? FLOW_INDENT + sub.width : 0) };
       });
@@ -242,7 +242,7 @@ export function layoutTree(
       const block = flows.get(id);
       if (block) {
         // A flow is a leaf of the tree as tall as its block (BBP-303).
-        const half = sizeOf(byId.get(id)!.kind).height / 2;
+        const half = sizeOfNode(byId.get(id)!).height / 2;
         const above = Math.max(half, -block.minY);
         const below = Math.max(half, block.maxY);
         const top = nextY;
@@ -251,7 +251,7 @@ export function layoutTree(
         lastFrame = undefined;
         return top + above;
       }
-      const height = sizeOf(byId.get(id)!.kind).height;
+      const height = sizeOfNode(byId.get(id)!).height;
       // Entering a frame: room for its padding and label above the card;
       // leaving one: room for its padding below the last card.
       const frame = byId.get(id)!.frameId;
@@ -279,7 +279,7 @@ export function layoutTree(
   const columnWidth = new Map<number, number>();
   for (const id of order) {
     const column = columnOf.get(id)!;
-    const width = sizeOf(byId.get(id)!.kind).width;
+    const width = sizeOfNode(byId.get(id)!).width;
     columnWidth.set(column, Math.max(columnWidth.get(column) ?? 0, width));
   }
   const columnX = new Map<number, number>();
@@ -292,7 +292,7 @@ export function layoutTree(
   const placed = new Map<string, PlacedNode>();
   for (const id of order) {
     const column = columnOf.get(id)!;
-    const { width, height } = sizeOf(byId.get(id)!.kind);
+    const { width, height } = sizeOfNode(byId.get(id)!);
     placed.set(id, {
       id,
       x: columnX.get(column)!,
@@ -310,7 +310,7 @@ export function layoutTree(
     const originX = flowPlaced.x + flowPlaced.width + COLUMN_GAP;
     const centre = flowPlaced.y + flowPlaced.height / 2;
     for (const entry of block.nodes) {
-      const { width, height } = sizeOf(byId.get(entry.id)!.kind);
+      const { width, height } = sizeOfNode(byId.get(entry.id)!);
       placed.set(entry.id, { id: entry.id, x: originX + entry.x, y: centre + entry.y, width, height, column: flowPlaced.column + 1 });
       parentIdOf.set(entry.id, block.parents.get(entry.id) ?? flowId);
       columnOf.set(entry.id, flowPlaced.column + 1);

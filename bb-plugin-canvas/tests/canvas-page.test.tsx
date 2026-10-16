@@ -403,18 +403,18 @@ describe("the Canvas page's tool calls under a turn", () => {
   });
 });
 
-describe("the Canvas page's +N earlier steps (BBP-286)", () => {
+describe("the Canvas page's turn stream (BBP-320, was +N earlier BBP-286)", () => {
   const steps = Array.from({ length: 12 }, (_, i) => ({ id: `w${i + 1}`, kind: "work", workKind: "tool", toolName: `tool${i + 1}`, status: "completed" }));
 
-  it("shows the newest ten steps of a turn and the older ones behind +N earlier", async () => {
+  it("shows every step of a turn in one stream, no +N earlier node", async () => {
     const { sdk } = liveSdk(() => [{ ...turnRow("turn-1"), summaryCount: 12 }]);
     sdk.threads.timelineTurnSummaryDetails.mockImplementation(async () => ({ rows: steps }) as never);
     canvasPanel(sdk);
     await open(/^Plain chat — /);
-    expect(await screen.findByRole("button", { name: /^tool12 — / })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^tool2 — / })).toBeNull();
-    await open(/^\+2 earlier/);
-    expect(await screen.findByRole("button", { name: /^tool1 — / })).toBeTruthy();
+    const stream = await screen.findByRole("log", { name: "0 messages · 12 steps" });
+    expect(within(stream).getByRole("button", { name: /^tool12 — / })).toBeTruthy();
+    expect(within(stream).getByRole("button", { name: /^tool1 — / })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^\+2 earlier/ })).toBeNull();
   });
 
   it("gives a turn without steps no expander", async () => {

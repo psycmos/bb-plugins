@@ -30,6 +30,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import { layoutTree, type PlacedEdge, type TreeLayout } from "../lib/layout";
 import { NodeCard, type NodeCardProps } from "./NodeCard";
+import { StreamView, type StreamViewProps } from "./StreamView";
+import { streamTurns, type StreamMeta } from "../lib/stream";
 import { Frame, type FrameProps } from "./Frame";
 import { describeNode, KindIcon } from "./KindIcon";
 import { StatusEdge, type StatusEdgeData } from "./StatusEdge";
@@ -168,7 +170,17 @@ function CanvasFrameView({
   );
 }
 
-const NODE_TYPES = { canvasNode: CanvasNodeView, canvasFrame: CanvasFrameView };
+/** A turn's steps as one scrolling stream (BBP-320). */
+function CanvasStreamView({ data }: { data: StreamViewProps }) {
+  return (
+    <>
+      <Handle type="target" position={Position.Left} style={{ visibility: "hidden" }} />
+      <StreamView {...data} />
+    </>
+  );
+}
+
+const NODE_TYPES = { canvasNode: CanvasNodeView, canvasFrame: CanvasFrameView, canvasStream: CanvasStreamView };
 const EDGE_TYPES = { statusEdge: StatusEdge };
 const EMPTY_DIMMED: ReadonlySet<string> = new Set();
 // Never past 100 %: a fit of three cards zoomed them to 180 % (BBP-298).
@@ -325,7 +337,8 @@ function toFlow(
   const byFrameId = new Map(frames.map((frame) => [frame.id, frame]));
   const childCount = new Map<string, number>();
   for (const node of nodes) {
-    if (node.parentId !== null) childCount.set(node.parentId, (childCount.get(node.parentId) ?? 0) + 1);
+    // A stream stands in for its turn's steps, which are counted already.
+    if (node.parentId !== null && !node.meta?.stream) childCount.set(node.parentId, (childCount.get(node.parentId) ?? 0) + 1);
   }
   // The longest step under each parent sets the scale of its duration bars.
   const longest = new Map<string, number>();
@@ -346,9 +359,7 @@ function toFlow(
     if (!node.meta?.needsYou) continue;
     for (let id = node.parentId; id !== null && byId.has(id) && !needsPath.has(id); id = byId.get(id)!.parentId) needsPath.add(id);
   }
-  const flowNodes: Node[] = layout.positions.map((placed) => {
-    const node = byId.get(placed.id)!;
-    const data: NodeCardProps = {
+  const cardFor = (node: CanvasNode): NodeCardProps => ({
       label: node.label,
       subtitle: describeNode(node.kind, childCount.get(node.id) ?? 0, node.meta),
       icon: <KindIcon kind={node.kind} />,
@@ -375,7 +386,31 @@ function toFlow(
             onToggle: () => onToggle?.(node.id),
           }
         : undefined,
-    };
+  });
+  const flowNodes: Node[] = layout.positions.map((placed) => {
+    const node = byId.get(placed.id)!;
+    if (node.meta?.stream) {
+      const { groups } = node.meta as unknown as StreamMeta;
+      const line = (item: CanvasNode) => ({ id: item.id, card: cardFor(item) });
+      const data: StreamViewProps = {
+        label: node.label,
+        dimmed: dimmedIds.has(node.id),
+        groups: groups.map((group) => ({ ...(group.message ? { message: line(group.message) } : {}), steps: group.steps.map(line) })),
+      };
+      return {
+        id: placed.id,
+        type: "canvasStream",
+        position: { x: placed.x, y: placed.y },
+        style: { width: placed.width, height: placed.height },
+        width: placed.width,
+        height: placed.height,
+        handles: [{ id: null, type: "target", position: Position.Left, x: 0, y: placed.height / 2, width: 1, height: 1 }],
+        data: data as unknown as Record<string, unknown>,
+        draggable: false,
+        selectable: false,
+      };
+    }
+    const data = cardFor(node);
     return {
       id: placed.id,
       type: "canvasNode",
@@ -447,10 +482,18 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
 ) {
   const [hostRef, themeMode] = useHostColorMode();
   const flow = useReactFlow();
+  // In the log view a turn's steps collapse into one stream (BBP-320); the
+  // selection of a step inside it highlights the path to the stream.
+  const streamed = useMemo(() => (stepsAsLog ? streamTurns(nodes) : null), [nodes, stepsAsLog]);
+  const laidOut = streamed?.nodes ?? nodes;
+  const layoutSelected = (selectedId && streamed?.owner.get(selectedId)) ?? selectedId;
   const layout = useMemo(
-    () => layoutTree(nodes, expanded, edges, frames, selectedId),
-    [nodes, expanded, edges, frames, selectedId],
+    () => layoutTree(laidOut, expanded, edges, frames, layoutSelected),
+    [laidOut, expanded, edges, frames, layoutSelected],
   );
+  // Cards inside a stream are drawn from the full set: the stream's own
+  // node plus every step it holds.
+  const drawn = useMemo(() => (streamed ? [...streamed.nodes, ...nodes.filter((node) => streamed.owner.has(node.id))] : nodes), [streamed, nodes]);
   // A click on a card or its chevron is the user taking over too: the start
   // fit must not re-frame the tree under the cursor — a selection opens the
   // sidebar, the canvas narrows, and the refit threw the view off (BBP-298).
@@ -488,8 +531,8 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
     [onToggle],
   );
   const { flowNodes, flowEdges } = useMemo(
-    () => toFlow(layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy, stepsAsLog),
-    [layout, nodes, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy, stepsAsLog],
+    () => toFlow(layout, drawn, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy, stepsAsLog),
+    [layout, drawn, frames, selectedId, select, dimmedIds, expanded, expandable, toggle, failedLoads, haloId, colorBy, stepsAsLog],
   );
 
   useEffect(() => {

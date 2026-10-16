@@ -1,7 +1,7 @@
 // Which of the three visual tiers a node's kind renders as (BBP-214 stage 2).
 // A single place to look up size and typography per tier, so `layoutTree`
 // and `NodeCard` agree on geometry without duplicating the mapping.
-import type { CanvasNodeKind } from "./types";
+import type { CanvasNode, CanvasNodeKind } from "./types";
 
 export type Tier = "group" | "card" | "row";
 
@@ -48,4 +48,12 @@ export const TIER_TYPOGRAPHY: Record<Tier, TierTypography> = {
 
 export function sizeOf(kind: CanvasNodeKind): TierSize {
   return TIER_SIZE[TIER_OF[kind]];
+}
+
+/** A node's own size: its tier's, unless it carries a `meta.size` of its own
+ *  (a step stream is as tall as the lines it shows, BBP-320). */
+export function sizeOfNode(node: Pick<CanvasNode, "kind" | "meta">): TierSize {
+  const own = node.meta?.size as Partial<TierSize> | undefined;
+  const base = sizeOf(node.kind);
+  return typeof own?.height === "number" ? { width: typeof own.width === "number" ? own.width : base.width, height: own.height } : base;
 }

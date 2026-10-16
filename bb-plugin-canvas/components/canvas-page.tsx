@@ -83,8 +83,9 @@ function limitTurnNodes<R extends { nodes: CanvasNode[]; edges?: CanvasEdge[] }>
   return { ...result, nodes, ...(edges ? { edges } : {}) };
 }
 
-/** A turn shows its newest this many steps; older ones sit behind "+N earlier". */
-const STEPS_PER_TURN = 10;
+/** Every step of a turn: the canvas draws them as one scrolling stream
+ *  (BBP-320), so the "+N earlier" cut-off is no longer needed. */
+const STEPS_PER_TURN = null;
 
 /** `pinned`: turn node ids the Activity list brought into view past the limit. */
 export async function loadChildren(
