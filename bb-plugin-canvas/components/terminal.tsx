@@ -180,7 +180,7 @@ export function ToolCallTerminal({ nodes, selectedId, onSelect, onClose }: ToolC
           style={{ left: 56, bottom: INSET }}
         >
           {running > 0 ? <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" /> : null}
-          <span className="font-medium">{running > 0 ? `${running} running` : `${all.length} tool calls`}</span>
+          <span className="shrink-0 whitespace-nowrap font-medium">{running > 0 ? `${running} running` : `${all.length} tool calls`}</span>
           {all.length > 0 ? <span className="min-w-0 truncate font-mono text-muted-foreground">{all[all.length - 1]!.text}</span> : null}
           <span aria-hidden>⤢</span>
         </button>
