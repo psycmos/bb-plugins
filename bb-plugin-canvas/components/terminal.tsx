@@ -199,7 +199,9 @@ export function ToolCallTerminal({ nodes, extraCalls = [], threadLabel, selected
     gesture.current = { kind, startX: event.clientX, startY: event.clientY, from: placed };
   };
 
-  const shell = "absolute z-20 overflow-hidden rounded-lg border border-border bg-background shadow-xl";
+  // See-through, so the canvas and its lines stay visible underneath; the
+  // blur keeps the text readable over cards.
+  const shell = "absolute z-20 overflow-hidden rounded-lg border border-border/60 bg-background/35 shadow-lg backdrop-blur-sm";
 
   if (placed.minimized)
     return (
@@ -228,7 +230,7 @@ export function ToolCallTerminal({ nodes, extraCalls = [], threadLabel, selected
       >
         <div
           onPointerDown={start("move")}
-          className="flex shrink-0 cursor-move select-none items-center gap-2 border-b border-border bg-card px-2.5 text-[11px]"
+          className="flex shrink-0 cursor-move select-none items-center gap-2 border-b border-border/50 bg-card/30 px-2.5 text-[11px]"
           style={{ height: TITLE_HEIGHT }}
         >
           <span aria-hidden className="text-muted-foreground">⠿</span>
