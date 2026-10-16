@@ -42,27 +42,31 @@ function stepsOf(nodes: readonly CanvasNode[]): CanvasNode[] {
 
 type Sdk = ReturnType<typeof useSdk>;
 
-export async function loadStepLog(sdk: Sdk, threadId: string): Promise<LogEntry[]> {
+/** Every tool call and subagent of a thread's newest `turns` turns, oldest
+ *  first: a finished turn's steps per turn, a running turn's loose ones last. */
+export async function loadThreadSteps(sdk: Sdk, threadId: string, turns: number): Promise<CanvasNode[]> {
   const response = await sdk.threads.timeline({ threadId });
   const { nodes } = timelineToCanvas(threadId, { rows: response.rows as unknown as readonly TimelineRowLike[] });
   const thread = threadNodeId(threadId);
-  const turns = nodes.filter((node) => node.kind === "turn" && node.parentId === thread).slice(-LOG_TURNS);
+  const newest = nodes.filter((node) => node.kind === "turn" && node.parentId === thread).slice(-turns);
   const perTurn = await Promise.all(
-    turns.map(async (turn) => {
+    newest.map(async (turn) => {
       const { turnId, sourceSeqStart, sourceSeqEnd, summaryCount } = turn.meta ?? {};
       if (typeof turnId !== "string" || typeof sourceSeqStart !== "number" || typeof sourceSeqEnd !== "number" || summaryCount === 0) return [];
       try {
         const details = await sdk.threads.timelineTurnSummaryDetails({ threadId, turnId, sourceSeqStart: String(sourceSeqStart), sourceSeqEnd: String(sourceSeqEnd) });
-        const steps = stepsOf(turnDetailsToCanvas(turn.id, { rows: details.rows as unknown as readonly TimelineRowLike[] }, threadId).nodes);
-        return steps.map((step) => entryOf(step, step.id));
+        return stepsOf(turnDetailsToCanvas(turn.id, { rows: details.rows as unknown as readonly TimelineRowLike[] }, threadId).nodes);
       } catch {
         return [];
       }
     }),
   );
-  // Loose steps (a running turn's) come after every grouped turn.
-  const loose = stepsOf(nodes.filter((node) => node.parentId === thread)).map((step) => entryOf(step, step.id));
-  return [...perTurn.flat(), ...loose].reverse();
+  return [...perTurn.flat(), ...stepsOf(nodes.filter((node) => node.parentId === thread))];
+}
+
+export async function loadStepLog(sdk: Sdk, threadId: string): Promise<LogEntry[]> {
+  const steps = await loadThreadSteps(sdk, threadId, LOG_TURNS);
+  return steps.map((step) => entryOf(step, step.id)).reverse();
 }
 
 export type StepLogProps = {

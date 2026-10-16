@@ -49,6 +49,34 @@ describe("terminalLines", () => {
   });
 });
 
+describe("terminalLines with loaded calls", () => {
+  const loaded = (id: string, at: number | undefined, threadId = "z"): CanvasNode => ({
+    id,
+    kind: "tool-call",
+    label: id,
+    parentId: "turn:z",
+    meta: { threadId, ...(at === undefined ? {} : { startedAtMs: at }) },
+  });
+
+  it("merges them with the canvas's, oldest first, each call once", () => {
+    const { lines } = terminalLines([...nodes, loaded("c9", 2)], null, [loaded("c9", 2), loaded("c8", 1)], () => "Reviewer");
+    expect(lines.slice(0, 2).map((line) => line.id)).toEqual(["c8", "c9"]);
+    expect(lines.filter((line) => line.id === "c9")).toHaveLength(1);
+    expect(lines[0]!.thread).toBe("Reviewer");
+  });
+
+  it("negative: a selection inside a thread ignores the loaded calls and names no thread", () => {
+    const { lines } = terminalLines(nodes, "u1", [loaded("c8", 1)], () => "Reviewer");
+    expect(lines.map((line) => line.id)).toEqual(["c1", "c2"]);
+    expect(lines.every((line) => line.thread === undefined)).toBe(true);
+  });
+
+  it("negative: calls without a time keep their order, after the timed ones", () => {
+    const { lines } = terminalLines([], null, [loaded("a", undefined), loaded("b", 3), loaded("c", undefined)]);
+    expect(lines.map((line) => line.id)).toEqual(["b", "a", "c"]);
+  });
+});
+
 describe("clampBox", () => {
   const area = { width: 1000, height: 600 };
   it("moves a box dragged past an edge back inside", () => {
@@ -107,8 +135,15 @@ describe("ToolCallTerminal", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("negative: with no tool calls on the canvas it says how to get some", () => {
+  it("negative: with no tool calls anywhere it says so", () => {
     render(<ToolCallTerminal nodes={nodes.filter((node) => node.kind !== "tool-call")} selectedId={null} onSelect={vi.fn()} onClose={vi.fn()} />);
-    expect(screen.getByText(/No tool calls on the canvas/)).toBeTruthy();
+    expect(screen.getByText("No tool calls yet.")).toBeTruthy();
+  });
+
+  it("shows loaded calls of closed threads with their thread's name while nothing is selected", () => {
+    const loaded: CanvasNode[] = [{ id: "x1", kind: "tool-call", label: "Read", parentId: "turn:z", meta: { workKind: "command", command: "ls", threadId: "z", startedAtMs: 5 } }];
+    render(<ToolCallTerminal nodes={nodes} extraCalls={loaded} threadLabel={(id) => (id === "z" ? "Reviewer" : undefined)} selectedId={null} onSelect={vi.fn()} onClose={vi.fn()} />);
+    const line = screen.getByTitle("ls");
+    expect(line.textContent).toContain("Reviewer");
   });
 });

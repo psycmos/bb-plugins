@@ -217,6 +217,7 @@ const FIELD_LABELS: Record<string, string> = {
  *  one (a graph run's `threadId`, say). */
 const TECHNICAL_KEYS: ReadonlySet<string> = new Set([
   "rowId",
+  "startedAtMs",
   "kind",
   "sourceSeq",
   "sourceSeqStart",

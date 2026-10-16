@@ -382,6 +382,8 @@ function timedMeta(row: TimelineRowLike, threadId: string | undefined): Record<s
   return compact({
     duration: duration(row.startedAt, row.completedAt),
     ...formatTimeRange(row.startedAt, row.completedAt),
+    // Raw, for ordering steps across threads (the tool-call terminal).
+    startedAtMs: row.startedAt,
     ...(threadId && typeof row.sourceSeqStart === "number" ? { threadId, sourceSeq: row.sourceSeqStart } : {}),
   });
 }

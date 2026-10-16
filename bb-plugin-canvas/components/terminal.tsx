@@ -45,7 +45,18 @@ export function clampBox(box: TerminalBox, area: { width: number; height: number
   return { ...box, x, y, width, height };
 }
 
-export type TerminalLine = { id: string; tag: string; color: string; text: string; detail: string; running: boolean; bar: number | null; key: TypeColorKey };
+export type TerminalLine = {
+  id: string;
+  tag: string;
+  color: string;
+  text: string;
+  detail: string;
+  running: boolean;
+  bar: number | null;
+  key: TypeColorKey;
+  /** The call's thread, named while the terminal shows every thread. */
+  thread?: string;
+};
 
 /** The node's thread: itself if it is one, else the nearest thread above it. */
 function threadOf(byId: ReadonlyMap<string, CanvasNode>, id: string | null): string | null {
@@ -54,12 +65,29 @@ function threadOf(byId: ReadonlyMap<string, CanvasNode>, id: string | null): str
   return null;
 }
 
-/** Tool calls on the canvas, in canvas order; with a selection inside a
- *  thread, only that thread's. */
-export function terminalLines(nodes: readonly CanvasNode[], selectedId: string | null): { lines: TerminalLine[]; scope: string | null } {
+const isCall = (node: CanvasNode) => node.kind === "tool-call" || node.kind === "subagent";
+
+/** With a selection inside a thread: that thread's tool calls on the canvas,
+ *  in canvas order. With none: every call — on the canvas and the `extra`
+ *  ones loaded for the threads it shows — oldest first, each named by its
+ *  thread. */
+export function terminalLines(
+  nodes: readonly CanvasNode[],
+  selectedId: string | null,
+  extra: readonly CanvasNode[] = [],
+  threadLabel: (threadId: string) => string | undefined = () => undefined,
+): { lines: TerminalLine[]; scope: string | null } {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const scopeId = threadOf(byId, selectedId);
-  const calls = nodes.filter((node) => (node.kind === "tool-call" || node.kind === "subagent") && (scopeId === null || threadOf(byId, node.id) === scopeId));
+  let calls: CanvasNode[];
+  if (scopeId !== null) calls = nodes.filter((node) => isCall(node) && threadOf(byId, node.id) === scopeId);
+  else {
+    const seen = new Set<string>();
+    calls = [...extra, ...nodes.filter(isCall)].filter((node) => isCall(node) && !seen.has(node.id) && Boolean(seen.add(node.id)));
+    const at = (node: CanvasNode) => (typeof node.meta?.startedAtMs === "number" ? node.meta.startedAtMs : Number.POSITIVE_INFINITY);
+    // Stable: calls without a time keep their order, after the timed ones.
+    calls = calls.map((node, index) => ({ node, index })).sort((a, b) => at(a.node) - at(b.node) || a.index - b.index).map(({ node }) => node);
+  }
   const longest = Math.max(0, ...calls.map((node) => durationMs(node.meta?.duration) ?? 0));
   const lines = calls.map((node): TerminalLine => {
     const key = typeKey(node);
@@ -75,6 +103,7 @@ export function terminalLines(nodes: readonly CanvasNode[], selectedId: string |
       detail: running ? "running" : typeof node.meta?.duration === "string" ? node.meta.duration : "",
       running,
       bar: ms !== null && longest > 0 ? ms / longest : null,
+      ...(scopeId === null && typeof node.meta?.threadId === "string" ? { thread: threadLabel(node.meta.threadId) } : {}),
     };
   });
   return { lines, scope: scopeId === null ? null : (byId.get(scopeId)?.label ?? null) };
@@ -82,12 +111,15 @@ export function terminalLines(nodes: readonly CanvasNode[], selectedId: string |
 
 export type ToolCallTerminalProps = {
   nodes: readonly CanvasNode[];
+  /** Calls loaded for the threads on the canvas, shown while nothing is selected. */
+  extraCalls?: readonly CanvasNode[];
+  threadLabel?: (threadId: string) => string | undefined;
   selectedId: string | null;
   onSelect: (nodeId: string) => void;
   onClose: () => void;
 };
 
-export function ToolCallTerminal({ nodes, selectedId, onSelect, onClose }: ToolCallTerminalProps) {
+export function ToolCallTerminal({ nodes, extraCalls = [], threadLabel, selectedId, onSelect, onClose }: ToolCallTerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
   const [area, setArea] = useState({ width: 0, height: 0 });
@@ -118,7 +150,7 @@ export function ToolCallTerminal({ nodes, selectedId, onSelect, onClose }: ToolC
     setBoxState(next);
   };
 
-  const { lines: all, scope } = useMemo(() => terminalLines(nodes, selectedId), [nodes, selectedId]);
+  const { lines: all, scope } = useMemo(() => terminalLines(nodes, selectedId, extraCalls, threadLabel), [nodes, selectedId, extraCalls, threadLabel]);
   const lines = only === "all" ? all : all.filter((line) => line.key === only);
   const kinds = [...new Set(all.map((line) => line.key))];
   const running = all.filter((line) => line.running).length;
@@ -240,7 +272,7 @@ export function ToolCallTerminal({ nodes, selectedId, onSelect, onClose }: ToolC
           }}
           className="min-h-0 flex-1 overflow-y-auto py-1 font-mono text-[11px]"
         >
-          {lines.length === 0 ? <li className="px-2.5 py-1 font-sans text-muted-foreground">No tool calls on the canvas. Open a thread to see its calls.</li> : null}
+          {lines.length === 0 ? <li className="px-2.5 py-1 font-sans text-muted-foreground">No tool calls yet.</li> : null}
           {lines.map((line) => (
             <li key={line.id} data-line={line.id}>
               <button
@@ -254,7 +286,10 @@ export function ToolCallTerminal({ nodes, selectedId, onSelect, onClose }: ToolC
                 <span className="font-semibold" style={{ color: line.color }}>
                   {line.tag}
                 </span>
-                <span className="truncate text-foreground">{line.text}</span>
+                <span className="truncate text-foreground">
+                  {line.thread ? <span className="mr-1.5 font-sans text-muted-foreground">{line.thread}</span> : null}
+                  {line.text}
+                </span>
                 <span className="h-[3px] rounded bg-muted">
                   {line.bar !== null ? <span className="block h-full rounded bg-primary/60" style={{ width: `${Math.max(4, line.bar * 100)}%` }} /> : null}
                 </span>

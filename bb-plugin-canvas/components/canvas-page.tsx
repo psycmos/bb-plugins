@@ -27,7 +27,7 @@ import {
 } from "../vendor/bb-canvas/lib/canvas-threads";
 import type { CanvasEdge, CanvasNode } from "../vendor/bb-canvas/lib/types";
 import { ActivitySection } from "./activity-section";
-import { StepLog } from "./step-log";
+import { loadThreadSteps, StepLog } from "./step-log";
 import { NeedsPanel, needsOf } from "./needs-panel";
 import { Overview } from "./overview";
 import { ChatComposer, ChatHistory, type ChatMessage } from "./chat";
@@ -141,6 +141,8 @@ export const ACTIVE_GRACE_MS = 60_000;
 const RUNNING_STATES = new Set(["active", "pending", "starting"]);
 const COLOR_BY_KEY = "bb-canvas:color-by";
 const TERMINAL_KEY = "bb-canvas:terminal-open";
+/** With nothing selected the terminal reads this many newest turns per thread on the canvas. */
+export const TERMINAL_TURNS = 3;
 
 function loadFlag(key: string): boolean {
   try {
@@ -401,6 +403,34 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     [sdk],
   );
 
+  // Every tool call of the threads on the canvas, for the terminal while
+  // nothing is selected — read only while it is open, and again when one of
+  // those threads changes.
+  const terminalThreads = useMemo(
+    () =>
+      terminalOpen && layer !== null
+        ? layer.nodes.flatMap((node) => (node.kind === "thread" && typeof node.meta?.threadId === "string" ? [node.meta.threadId] : []))
+        : [],
+    [terminalOpen, layer],
+  );
+  const terminalKey = terminalThreads.map((id) => `${id}:${reloads.get(threadNodeId(id)) ?? 0}`).join(",");
+  const [allCalls, setAllCalls] = useState<readonly CanvasNode[]>([]);
+  useEffect(() => {
+    if (terminalKey === "") {
+      setAllCalls([]);
+      return;
+    }
+    let cancelled = false;
+    // One thread that cannot be read costs only its own calls.
+    Promise.all(terminalThreads.map((id) => Promise.resolve().then(() => loadThreadSteps(sdk, id, TERMINAL_TURNS)).catch(() => [] as CanvasNode[]))).then((perThread) => {
+      if (!cancelled) setAllCalls(perThread.flat());
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sdk, terminalKey]);
+
   if (state === null) return <div className="p-4 text-sm text-muted-foreground">Loading…</div>;
   if ("error" in state) return <div className="p-4 text-sm text-destructive">Canvas not available: {state.error}</div>;
   // Before the empty states: a focus on a thread that is gone is the answer
@@ -508,7 +538,21 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
           }
           shortcuts={{ t: () => setTerminalOpen(!terminalOpen), T: () => setTerminalOpen(!terminalOpen) }}
           renderCanvasLayer={({ nodes, selectedId, select }) =>
-            terminalOpen ? <ToolCallTerminal nodes={nodes} selectedId={selectedId} onSelect={select} onClose={() => setTerminalOpen(false)} /> : null
+            terminalOpen ? (
+              <ToolCallTerminal
+                nodes={nodes}
+                extraCalls={allCalls}
+                threadLabel={threadLabel}
+                selectedId={selectedId}
+                // A call not on the canvas (its turn closed) selects its thread.
+                onSelect={(id) => {
+                  if (nodes.some((node) => node.id === id)) return select(id);
+                  const threadId = allCalls.find((call) => call.id === id)?.meta?.threadId;
+                  if (typeof threadId === "string") select(threadNodeId(threadId));
+                }}
+                onClose={() => setTerminalOpen(false)}
+              />
+            ) : null
           }
           renderOverview={(context) => (
             <Overview

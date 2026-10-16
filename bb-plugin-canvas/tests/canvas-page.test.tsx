@@ -637,6 +637,25 @@ describe("the Canvas filters, auto-open and Log (BBP-298)", () => {
   });
 });
 
+describe("the Canvas tool-call terminal (BBP-312)", () => {
+  it("shows the calls of every thread on the canvas while nothing is selected, closed threads too", async () => {
+    localStorage.setItem("bb-canvas:terminal-open", "true");
+    const { sdk, timeline } = liveSdk(() => [turnRow("turn-1")]);
+    canvasPanel(sdk);
+    const terminal = await screen.findByRole("region", { name: "Tool calls" });
+    await waitFor(() => expect(within(terminal).getAllByRole("button", { name: /Review the diff/ }).length).toBeGreaterThan(0));
+    expect(timeline).toHaveBeenCalledWith({ threadId: "t1" });
+    expect(timeline).toHaveBeenCalledWith({ threadId: "t2" });
+  });
+
+  it("negative: reads nothing while the terminal is closed", async () => {
+    const { sdk, timeline } = liveSdk(() => [turnRow("turn-1")]);
+    canvasPanel(sdk);
+    await screen.findByRole("button", { name: /^Plain chat — / });
+    expect(timeline).not.toHaveBeenCalled();
+  });
+});
+
 describe("the Canvas time window in the toolbar (BBP-298)", () => {
   it("starts at the settings' window and widens on request", async () => {
     canvasPanel({
