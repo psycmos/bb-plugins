@@ -32,6 +32,7 @@ import { NeedsPanel, needsOf } from "./needs-panel";
 import { Overview } from "./overview";
 import { ChatComposer, ChatHistory, type ChatMessage } from "./chat";
 import { ToolCallTerminal } from "./terminal";
+import { ProjectDashboard } from "./project-dashboard";
 
 type State = { projects: ProjectLike[]; threads: readonly ThreadListItem[] } | { error: string } | null;
 type Sdk = ReturnType<typeof useSdk>;
@@ -273,7 +274,7 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     // An unreadable project list only costs the project names: the tree then
     // names each project by its id.
     const projects = sdk.projects.list().then(
-      (list) => list.map((project): ProjectLike => ({ id: project.id, name: project.name ?? project.id })),
+      (list) => list.map((project): ProjectLike => ({ id: project.id, name: project.name ?? project.id, gitRemoteUrl: project.gitRemoteUrl ?? null })),
       () => [] as ProjectLike[],
     );
     Promise.all([projects, sdk.threads.list()]).then(
@@ -542,6 +543,18 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
             const threadId = node.kind === "thread" ? node.meta?.threadId : undefined;
             const chatThread = node.meta?.threadId;
             const needs = needsOf(node.meta);
+            if (node.kind === "project") {
+              const projectId = node.id.slice("project:".length);
+              return (
+                <ProjectDashboard
+                  projectId={projectId}
+                  threads={state.threads}
+                  remote={state.projects.find((project) => project.id === projectId)?.gitRemoteUrl}
+                  now={Date.now()}
+                  onSelectThread={(threadId) => setReveal((prev) => ({ id: threadNodeId(threadId), seq: (prev?.seq ?? 0) + 1 }))}
+                />
+              );
+            }
             return (
               <>
                 {needs ? <NeedsPanel key={node.id} needs={needs} answer={(target, answer) => rpcRef.current.call("answerNeeds", { needs: target, answer })} /> : null}

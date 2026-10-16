@@ -19,7 +19,8 @@ export type ThreadListItem = {
   environmentBranchName?: string | null;
 };
 
-export type ProjectLike = { id: string; name: string };
+/** `gitRemoteUrl`: the project's repository, for its dashboard. */
+export type ProjectLike = { id: string; name: string; gitRemoteUrl?: string | null };
 
 const STATUS: Record<string, CanvasStatus> = {
   active: "running",
