@@ -156,6 +156,34 @@ describe("the Canvas surface", () => {
     expect(screen.getByRole("complementary", { name: "Details for Busy" })).toBeTruthy();
   });
 
+  it("the running badge in the panel header jumps to running work", async () => {
+    canvasPanel(sdk([row("t1", "p1", "Busy", { status: "active" }), row("t2", "p1", "Quiet")]));
+    await screen.findByRole("button", { name: /^Busy — / });
+    fireEvent.click(screen.getByRole("button", { name: "1 running" }));
+    expect(screen.getByRole("button", { name: /^Busy — / }).getAttribute("data-halo")).toBe("true");
+  });
+
+  it("negative: no badge while nothing runs or waits", async () => {
+    canvasPanel(sdk([row("t2", "p1", "Quiet")]));
+    await screen.findByRole("button", { name: /^Quiet — / });
+    expect(screen.queryByRole("button", { name: /running$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /needs? you$/ })).toBeNull();
+  });
+
+  it("search finds without selecting: the overview stays, the match is marked, Enter steps on", async () => {
+    canvasPanel(sdk([row("t1", "p1", "Live one"), row("t2", "p1", "Live two")]));
+    await screen.findByRole("button", { name: /^Live one — / });
+    const field = screen.getByRole("textbox", { name: "Search nodes" });
+    fireEvent.change(field, { target: { value: "Live" } });
+    expect(screen.getByText("1 / 2")).toBeTruthy();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(screen.getByText("2 / 2")).toBeTruthy();
+    fireEvent.keyDown(field, { key: "Enter", shiftKey: true });
+    expect(screen.getByText("1 / 2")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Overview" })).toBeTruthy();
+    expect(document.querySelectorAll('[data-canvas-view] button[aria-pressed="true"]')).toHaveLength(0);
+  });
+
   it("negative: a tile with nothing to jump to is disabled, and nothing running says so", async () => {
     canvasPanel(sdk([row("t2", "p1", "Quiet")]));
     await screen.findByRole("button", { name: /^Quiet — / });

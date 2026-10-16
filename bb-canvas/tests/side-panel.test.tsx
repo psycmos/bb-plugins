@@ -154,18 +154,57 @@ describe("CanvasView side panel (BBP-313)", () => {
     expect(context!.allExpanded).toBe(false);
   });
 
-  it("searches: matches counted, the rest dimmed, next selects the first match", () => {
+  it("searches: matches counted, the rest dimmed, the first match marked at once", () => {
     let context: OverviewContext | null = null;
     renderPanel((ctx) => {
       context = ctx;
       return <input aria-label="q" value={ctx.search.query} onChange={(event) => ctx.search.setQuery(event.target.value)} />;
-    });
+    }, { halo: true });
     fireEvent.change(screen.getByRole("textbox", { name: "q" }), { target: { value: "steps" } });
     expect(context!.search.matches).toBe(1);
+    expect(context!.search.current).toBe(1);
     expect(card(/^orch-lead — /).getAttribute("aria-disabled")).toBe("true");
     expect(card(/^steps-impl — /).getAttribute("aria-disabled")).toBe("false");
+    expect(card(/^steps-impl — /).getAttribute("data-halo")).toBe("true");
+  });
+
+  it("negative: a search never selects — the panel stays on the overview", () => {
+    let context: OverviewContext | null = null;
+    renderPanel((ctx) => {
+      context = ctx;
+      return <input aria-label="q" value={ctx.search.query} onChange={(event) => ctx.search.setQuery(event.target.value)} />;
+    }, { halo: true });
+    fireEvent.change(screen.getByRole("textbox", { name: "q" }), { target: { value: "-" } });
     act(() => context!.search.next());
-    expect(card(/^steps-impl — /).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("complementary", { name: "Overview" })).toBeTruthy();
+    expect(card(/^orch-lead — /).getAttribute("aria-pressed")).toBe("false");
+    expect(card(/^steps-impl — /).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("steps through several matches with next and previous, wrapping at both ends", () => {
+    let context: OverviewContext | null = null;
+    renderPanel((ctx) => {
+      context = ctx;
+      return <input aria-label="q" value={ctx.search.query} onChange={(event) => ctx.search.setQuery(event.target.value)} />;
+    }, { halo: true });
+    fireEvent.change(screen.getByRole("textbox", { name: "q" }), { target: { value: "e" } });
+    expect(context!.search.matches).toBe(2);
+    expect(card(/^orch-lead — /).getAttribute("data-halo")).toBe("true");
+    act(() => context!.search.next());
+    expect(context!.search.current).toBe(2);
+    expect(card(/^steps-impl — /).getAttribute("data-halo")).toBe("true");
+    expect(card(/^orch-lead — /).getAttribute("data-halo")).toBeNull();
+    act(() => context!.search.next());
+    expect(context!.search.current).toBe(1);
+    act(() => context!.search.previous());
+    expect(context!.search.current).toBe(2);
+  });
+
+  it("negative: clearing the search drops the mark", () => {
+    renderPanel((ctx) => <input aria-label="q" value={ctx.search.query} onChange={(event) => ctx.search.setQuery(event.target.value)} />, { halo: true });
+    fireEvent.change(screen.getByRole("textbox", { name: "q" }), { target: { value: "steps" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "q" }), { target: { value: "" } });
+    expect(card(/^steps-impl — /).getAttribute("data-halo")).toBeNull();
   });
 
   it("negative: an empty search dims nothing and counts nothing", () => {

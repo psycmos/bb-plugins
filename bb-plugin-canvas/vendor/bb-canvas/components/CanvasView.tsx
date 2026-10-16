@@ -45,6 +45,8 @@ const EMPTY_DIMMED: ReadonlySet<string> = new Set();
 const MIN_HEIGHT = 320;
 
 const PANEL_COLLAPSED_KEY = "bb-canvas:panel-collapsed";
+/** The zoom a search match is shown at: readable, whatever the view was. */
+const SEARCH_ZOOM = 1;
 
 function loadCollapsed(): boolean {
   try {
@@ -73,7 +75,17 @@ export type OverviewContext = {
   select: (nodeId: string) => void;
   /** What J does: the next running node, centred. */
   jumpToRunning: () => void;
-  search: { query: string; setQuery: (query: string) => void; matches: number; next: () => void };
+  /** Finds, never selects (BBP-310): the canvas zooms to the current match
+   *  and marks it with the halo; the panel stays on the overview. */
+  search: {
+    query: string;
+    setQuery: (query: string) => void;
+    matches: number;
+    /** 1-based position of the match in view; 0 when there is none. */
+    current: number;
+    next: () => void;
+    previous: () => void;
+  };
   relations: { available: boolean; shown: boolean; toggle: () => void };
 };
 
@@ -372,20 +384,32 @@ export function CanvasView({
   );
   const visibleIds = useMemo(() => new Set(visible.map((node) => node.id)), [visible]);
   // The panel's search (BBP-310): every visible card whose label matches;
-  // the rest fade, Enter steps through the matches.
+  // the rest fade, and the canvas moves from match to match without
+  // selecting any — a selection would turn the panel into a node's view.
   const matchIds = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!panelMode || query === "") return null;
     return visible.filter((node) => node.label.toLowerCase().includes(query)).map((node) => node.id);
   }, [panelMode, searchQuery, visible]);
-  const matchCursor = useRef(0);
-  function nextMatch() {
+  const [matchAt, setMatchAt] = useState(0);
+  const showMatch = (index: number) => {
     if (matchIds === null || matchIds.length === 0) return;
-    const at = matchCursor.current % matchIds.length;
-    matchCursor.current = at + 1;
-    select(matchIds[at]!);
-    shellRef.current?.centerOn(matchIds[at]!);
-  }
+    const at = ((index % matchIds.length) + matchIds.length) % matchIds.length;
+    setMatchAt(at);
+    setHaloId(matchIds[at]!);
+    shellRef.current?.centerOn(matchIds[at]!, SEARCH_ZOOM);
+  };
+  // A new set of matches (the query changed) goes to its first one at once.
+  const matchKey = matchIds?.join("\n") ?? null;
+  useEffect(() => {
+    if (matchIds === null || matchIds.length === 0) {
+      setMatchAt(0);
+      if (matchKey !== null || searchQuery === "") setHaloId(null);
+      return;
+    }
+    showMatch(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchKey]);
 
   const hasChildren = useMemo(() => {
     const parents = new Set<string>();
@@ -937,7 +961,14 @@ export function CanvasView({
                         collapseAll,
                         select,
                         jumpToRunning: jumpToActive,
-                        search: { query: searchQuery, setQuery: (query) => { matchCursor.current = 0; setSearchQuery(query); }, matches: matchIds?.length ?? 0, next: nextMatch },
+                        search: {
+                          query: searchQuery,
+                          setQuery: setSearchQuery,
+                          matches: matchIds?.length ?? 0,
+                          current: matchIds && matchIds.length > 0 ? matchAt + 1 : 0,
+                          next: () => showMatch(matchAt + 1),
+                          previous: () => showMatch(matchAt - 1),
+                        },
                         relations: { available: hasRelations, shown: showRelations, toggle: toggleRelations },
                       })}
                     </SidePanel>

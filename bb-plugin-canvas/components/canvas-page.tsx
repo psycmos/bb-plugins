@@ -455,6 +455,8 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
     setReveal((prev) => ({ id: needing[at]!, seq: (prev?.seq ?? 0) + 1 }));
   };
   const threadLabel = (threadId: string) => shown.nodes.find((node) => node.id === threadNodeId(threadId))?.label ?? "thread";
+  // What J does: the canvas cycles through running work.
+  const jumpToRunning = () => viewRef.current?.querySelector<HTMLElement>("[data-canvas-view]")?.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true }));
   const resetFilters = () => {
     changeProjects([]);
     setPicked([]);
@@ -479,15 +481,27 @@ export function CanvasPage({ subPath, focusThreadId, overview, activeOnly: activ
             running > 0 || needing.length > 0 ? (
               <span className="flex items-center gap-1.5 text-[11px]">
                 {needing.length > 0 ? (
-                  <span className="flex items-center gap-1 rounded-full border px-2 py-0.5" style={{ borderColor: "#f59e0b80", color: "#f59e0b" }}>
+                  <button
+                    type="button"
+                    onClick={jumpToNeeds}
+                    title="Jump to what needs you"
+                    aria-label={`${needing.length} need${needing.length === 1 ? "s" : ""} you`}
+                    className="flex items-center gap-1 rounded-full border px-2 py-0.5 hover:bg-amber-500/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary"
+                    style={{ borderColor: "#f59e0b80", color: "#f59e0b" }}
+                  >
                     ◷ {needing.length}
-                  </span>
+                  </button>
                 ) : null}
                 {running > 0 ? (
-                  <span className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-foreground">
+                  <button
+                    type="button"
+                    onClick={jumpToRunning}
+                    title="Jump to running work (J)"
+                    className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-foreground hover:bg-primary/20 focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary"
+                  >
                     <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
                     {running} running
-                  </span>
+                  </button>
                 ) : null}
               </span>
             ) : null

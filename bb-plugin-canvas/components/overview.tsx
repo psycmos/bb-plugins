@@ -146,7 +146,8 @@ export function Overview(props: OverviewProps) {
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                search.next();
+                if (event.shiftKey) search.previous();
+                else search.next();
               }
               if (event.key === "Escape") {
                 event.stopPropagation();
@@ -157,9 +158,21 @@ export function Overview(props: OverviewProps) {
             className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
           />
           {search.query.trim() !== "" ? (
-            <span className="shrink-0 text-[11px] text-muted-foreground" aria-live="polite">
-              {search.matches === 0 ? "no match" : `${search.matches} match${search.matches === 1 ? "" : "es"}`}
-            </span>
+            <>
+              <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground" aria-live="polite">
+                {search.matches === 0 ? "no match" : `${search.current} / ${search.matches}`}
+              </span>
+              {search.matches > 1 ? (
+                <>
+                  <button type="button" aria-label="Previous match (Shift+Enter)" onClick={search.previous} className="shrink-0 rounded px-0.5 text-muted-foreground hover:text-foreground">
+                    ↑
+                  </button>
+                  <button type="button" aria-label="Next match (Enter)" onClick={search.next} className="shrink-0 rounded px-0.5 text-muted-foreground hover:text-foreground">
+                    ↓
+                  </button>
+                </>
+              ) : null}
+            </>
           ) : (
             <kbd className="shrink-0 rounded border border-border px-1 font-mono text-[10px] text-muted-foreground">/</kbd>
           )}

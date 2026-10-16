@@ -274,8 +274,8 @@ export type CanvasShellHandle = {
   resetView: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
-  /** Pans to one node at the current zoom (BBP-290). */
-  centerOn: (nodeId: string) => void;
+  /** Pans to one node at the current zoom (BBP-290), or at `zoom`. */
+  centerOn: (nodeId: string, zoom?: number) => void;
 };
 
 /** React Flow edges for the placed ones; relations sit below every card and
@@ -640,11 +640,14 @@ const CanvasShellInner = forwardRef<CanvasShellHandle, CanvasShellProps>(functio
         userInteracted.current = true;
         flow.zoomOut();
       },
-      centerOn: (nodeId) => {
+      centerOn: (nodeId, zoom) => {
         userInteracted.current = true;
         // A frame later: a jump can expand nothing, but the layout may still
         // be settling from the selection's own re-layout.
-        requestAnimationFrame(() => fitNow({ nodes: [{ id: nodeId }], maxZoom: flow.getZoom(), minZoom: flow.getZoom(), duration: 200 }));
+        requestAnimationFrame(() => {
+          const at = zoom ?? flow.getZoom();
+          fitNow({ nodes: [{ id: nodeId }], maxZoom: at, minZoom: at, duration: 200 });
+        });
       },
     }),
     [flow],
