@@ -12,8 +12,8 @@ Two areas: the canvas and a resizable panel on its right.
   status board and the legend, each a section that opens and closes.
 - **A card's view** (click a card): what it is, its fields, its thread's turns
   and tool calls, and a chat that sends to that thread.
-- Over the canvas: the breadcrumb of the selected card (top left), the zoom
-  (bottom left) and the tool-call terminal, a window you can drag anywhere.
+- Over the canvas: the zoom (bottom left) and the tool-call terminal, a
+  window you can drag anywhere.
 
 Keys: `/` search · `J` next running work · `T` tool-call terminal · `]` hide
 or show the panel · `Esc` back to the overview · `⌘↵` send a chat message.

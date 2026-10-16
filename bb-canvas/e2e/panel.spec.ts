@@ -19,14 +19,11 @@ test("the overview fills the panel's height beside the canvas, with no toolbar a
   await page.screenshot({ path: "test-results/panel-overview.png" });
 });
 
-test("a card turns the panel into its view; the breadcrumb sits over the canvas", async ({ page }) => {
+test("a card turns the panel into its view", async ({ page }) => {
   await page.getByRole("button", { name: new RegExp("^orch-lead — ") }).click();
   const details = page.getByRole("complementary", { name: "Details for orch-lead" });
   await expect(details).toBeVisible();
-  const crumb = page.getByRole("navigation", { name: "Breadcrumb" });
-  const crumbBox = (await crumb.boundingBox())!;
-  const panelBox = (await details.boundingBox())!;
-  expect(crumbBox.x + crumbBox.width).toBeLessThan(panelBox.x);
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
   await page.screenshot({ path: "test-results/panel-node.png" });
   await page.keyboard.press("Escape");

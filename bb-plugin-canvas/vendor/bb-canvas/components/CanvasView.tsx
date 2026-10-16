@@ -869,11 +869,6 @@ export function CanvasView({
           {overlay ? <div style={{ position: "absolute", left: 12, bottom: 12, zIndex: 5, maxWidth: "calc(100% - 200px)" }}>{typeof overlay === "function" ? overlay(visible) : overlay}</div> : null}
           {cornerAction ? <div style={{ position: "absolute", right: 64, bottom: 14, zIndex: 5 }}>{cornerAction}</div> : null}
           {renderCanvasLayer ? renderCanvasLayer({ nodes: visible, selectedId, select }) : null}
-          {panelMode ? (
-            <div style={{ position: "absolute", left: 12, top: 12, zIndex: 5, maxWidth: "70%" }}>
-              <Breadcrumb nodes={allNodes} selectedId={selectedId} onSelect={select} floating />
-            </div>
-          ) : null}
           {panelMode && panelCollapsed ? (
             <div
               style={{

@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { CanvasView, type OverviewContext } from "@/components/CanvasView";
 import { Accordion } from "@/components/Accordion";
-import { Breadcrumb, foldPath } from "@/components/Breadcrumb";
 import type { CanvasNode } from "@/lib/types";
 
 afterEach(() => {
@@ -224,43 +223,11 @@ describe("CanvasView side panel (BBP-313)", () => {
   });
 });
 
-describe("Breadcrumb island (BBP-309)", () => {
-  const deep: CanvasNode[] = [
-    { id: "a", kind: "agents", label: "Agents", parentId: null },
-    { id: "p", kind: "project", label: "bb-plugins", parentId: "a" },
-    { id: "t", kind: "thread", label: "Architect", parentId: "p" },
-    { id: "u", kind: "turn", label: "okay mache das", parentId: "t" },
-    { id: "c", kind: "tool-call", label: "gh run watch", parentId: "u" },
-  ];
-
-  it("folds a path longer than four into first, …, last two", () => {
-    expect(foldPath([1, 2, 3, 4, 5])).toEqual({ head: [1], folded: [2, 3], tail: [4, 5] });
-  });
-
-  it("negative: four segments or fewer stay unfolded", () => {
-    expect(foldPath([1, 2, 3, 4])).toEqual({ head: [1, 2, 3, 4], folded: [], tail: [] });
-  });
-
-  it("shows the folded middle on a click and selects from it", () => {
-    const onSelect = vi.fn();
-    render(<Breadcrumb nodes={deep} selectedId="c" onSelect={onSelect} floating />);
-    const nav = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(nav).queryByText("bb-plugins")).toBeNull();
-    fireEvent.click(within(nav).getByRole("button", { name: "2 more" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "bb-plugins" }));
-    expect(onSelect).toHaveBeenCalledWith("p");
-  });
-
-  it("gives every segment its full label as a tooltip", () => {
-    render(<Breadcrumb nodes={deep} selectedId="c" onSelect={vi.fn()} floating />);
-    expect(screen.getByRole("button", { name: "gh run watch" }).getAttribute("title")).toBe("gh run watch");
-  });
-
-  it("sits over the canvas in panel mode only while something is selected", () => {
+describe("no breadcrumb in panel mode", () => {
+  it("negative: a selection shows no breadcrumb over the canvas", () => {
     renderPanel();
-    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
     fireEvent.click(card(/^orch-lead — /));
-    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
   });
 });
 

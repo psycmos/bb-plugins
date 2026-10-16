@@ -652,13 +652,11 @@ describe("the Canvas time window in the toolbar (BBP-298)", () => {
 });
 
 describe("the Canvas sidebar layout (BBP-298)", () => {
-  it("puts the breadcrumb over the canvas, not in the panel (BBP-309)", async () => {
+  it("negative: shows no breadcrumb, over the canvas or in the panel", async () => {
     const { sdk } = liveSdk(() => [turnRow("turn-1")]);
     canvasPanel(sdk);
     fireEvent.click(await screen.findByRole("button", { name: /^Plain chat — / }));
-    const aside = screen.getByRole("complementary", { name: "Details for Plain chat" });
-    const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(aside.contains(crumb)).toBe(false);
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
   });
 
   it("remembers an opened section for the next thread", async () => {
