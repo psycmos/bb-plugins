@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin, { rpcContract } from "../server.js";
+import type { QmdHit } from "../lib/qmd.js";
 
 // Every corpus and external effect is synthetic. Unexpected paths/commands fail closed.
 const external = vi.hoisted(() => ({
   disk: new Map<string, string>(), io: [] as { method: string; path: string }[],
-  commands: [] as { binary: string; args: string[] }[], qmd: false,
+  commands: [] as { binary: string; args: string[] }[], qmd: false, hits: [] as QmdHit[],
 }));
 vi.mock("node:fs/promises", () => {
   const check = (method: string, path: string) => {
@@ -30,14 +31,14 @@ vi.mock("node:child_process", () => ({
     if (args[0] === "tasks" && args[1] === "list") {
       done(null, JSON.stringify({ tasks: [{ id: "task_fixture", key: "TEST-1", title: "Fictional task", description: "Only synthetic text", status: "todo", priority: "none", updatedAt: "2026-01-01T00:00:00Z" }], nextCursor: null }), "");
     } else if (binary === "qmd") {
-      done(external.qmd ? null : new Error("qmd fixture unavailable"), args.includes("--json") ? "[]" : "", "");
+      done(external.qmd ? null : new Error("qmd fixture unavailable"), args.includes("--json") ? JSON.stringify(external.hits) : "", "");
     } else throw new Error(`Forbidden external command: ${binary} ${args.join(" ")}`);
   },
 }));
 
 type Running = { controller: AbortController; done: Promise<void> };
 const cleanups: (() => Promise<void>)[] = [];
-beforeEach(() => { vi.useFakeTimers(); external.disk.clear(); external.io.length = 0; external.commands.length = 0; external.qmd = false; });
+beforeEach(() => { vi.useFakeTimers(); external.disk.clear(); external.io.length = 0; external.commands.length = 0; external.qmd = false; external.hits = []; });
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); vi.useRealTimers(); });
 async function setup(settings: Record<string, string | number | boolean> = {}) {
   const list = vi.fn(async ({ archived }: { archived?: boolean } = {}) => [makeThreadResponse({ id: archived ? "thr_archived_fixture" : "thr_active_fixture", projectId: "project_fixture", title: "Fictional thread", updatedAt: 1 })]);
@@ -243,6 +244,37 @@ describe("safe first load — real Recall factory and service", () => {
     await e.settingsChanged({ sourceThreads: false });
     expect((await e.get({ kind: "thread", id: "thr_active_fixture" })).content).toBeNull();
     expect((await e.get({ kind: "task", id: "task_fixture" })).content).toContain("Fictional task");
+  });
+
+  it.each([false, true])("cached archived eligibility follows the explicit choice %s even when the next pass fails", async archived => {
+    external.qmd = true;
+    external.hits = ["thr_active_fixture", "thr_archived_fixture"].map(id => ({
+      file: `qmd://bb/thread-${id}.md`, title: "Fictional thread", snippet: "Fictional conversation", score: 1,
+    }));
+    const e = await setup({ sourceThreads: true, sourceArchived: true, sourceTasks: false });
+    await e.start();
+    expect((await e.get({ kind: "thread", id: "thr_archived_fixture" })).content).toContain("Fictional conversation");
+    expect(await e.harness.behavior.callAgentTool("recall_get", { kind: "thread", id: "thr_archived_fixture" })).toContain("Fictional conversation");
+    expect((await e.query()).hits.map(hit => hit.id)).toEqual(["thr_active_fixture", "thr_archived_fixture"]);
+
+    e.list.mockRejectedValue(new Error("Synthetic source read failure"));
+    await e.settingsChanged({ sourceArchived: archived, intervalSeconds: 61 });
+    await vi.waitFor(async () => expect((await e.status()).phase).toBe("error"));
+    external.io.length = 0;
+    expect((await e.get({ kind: "thread", id: "thr_active_fixture" })).content).toContain("Fictional conversation");
+    const content = (await e.get({ kind: "thread", id: "thr_archived_fixture" })).content;
+    const agent = await e.harness.behavior.callAgentTool("recall_get", { kind: "thread", id: "thr_archived_fixture" });
+    if (archived) {
+      expect(content).toContain("Fictional conversation");
+      expect(agent).toContain("Fictional conversation");
+    } else {
+      expect(content).toBeNull();
+      expect(agent).toBe("No indexed thread thr_archived_fixture.");
+      expect(external.io.some(entry => entry.path.endsWith("thread-thr_archived_fixture.md"))).toBe(false);
+      external.disk.set("/fictional-bb/plugins/recall/mirror/thread-thr_unknown_fixture.md", "Unclassified synthetic cache");
+      expect((await e.get({ kind: "thread", id: "thr_unknown_fixture" })).content).toBeNull();
+    }
+    expect((await e.query()).hits.map(hit => hit.id)).toEqual(archived ? ["thr_active_fixture", "thr_archived_fixture"] : ["thr_active_fixture"]);
   });
 
   it("abort during the first settings read does not copy or leave a sleep timer", async () => {

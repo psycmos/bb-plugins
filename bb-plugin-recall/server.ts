@@ -204,6 +204,7 @@ export default function plugin(bb: BbPluginApi) {
   const wake: { fire?: () => void } = {};
   let catalog: Catalog = buildCatalog(new Map(), new Map(), []);
   let threadInfo = new Map<string, ThreadInfo>();
+  let activeThreadIds = new Set<string>();
   let taskInfo = new Map<string, TaskInfo>();
   let config = {
     threads: false,
@@ -262,8 +263,10 @@ export default function plugin(bb: BbPluginApi) {
   const sources: IndexSources = {
     async listThreads(signal) {
       const summaries: ThreadSummary[] = [];
+      const activeIds = new Set<string>();
       if (!config.threads) {
         threadInfo = new Map();
+        activeThreadIds.clear();
         return summaries;
       }
       const names = await projectNames(signal);
@@ -272,6 +275,7 @@ export default function plugin(bb: BbPluginApi) {
           const page = await bb.sdk.threads.list({ archived, includeHidden: false, limit: 200, offset, signal });
           for (const thread of page) {
             if (thread.deletedAt !== null) continue;
+            if (!archived) activeIds.add(thread.id);
             summaries.push({
               id: thread.id,
               projectId: thread.projectId,
@@ -282,6 +286,8 @@ export default function plugin(bb: BbPluginApi) {
           if (page.length < 200) break;
         }
       }
+      // Keep the last completed classification if a later listing fails.
+      activeThreadIds = activeIds;
       threadInfo = new Map(
         summaries.map((thread) => [
           thread.id,
@@ -367,6 +373,7 @@ export default function plugin(bb: BbPluginApi) {
   function pauseWithoutSources(): boolean {
     if (hasSources()) return false;
     threadInfo.clear();
+    activeThreadIds.clear();
     taskInfo.clear();
     catalog = buildCatalog(threadInfo, taskInfo, []);
     setStatus({ phase: "inactive", documents: 0, counts: { threads: 0, tasks: 0, files: 0 }, folders: [], lastIndexedAt: null, progress: null, error: null });
@@ -482,7 +489,8 @@ export default function plugin(bb: BbPluginApi) {
   }
 
   function sourceEnabled(kind: "thread" | "task" | "file", id: string): boolean {
-    if (kind === "thread") return config.threads;
+    // Unknown cached IDs cannot be assumed active when archived threads are off.
+    if (kind === "thread") return config.threads && (config.archived || activeThreadIds.has(id));
     if (kind === "task") return config.tasks;
     return config.folders.some((folder) => resolvePath(id).startsWith(folder.root + sep));
   }
